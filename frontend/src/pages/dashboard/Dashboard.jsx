@@ -294,48 +294,76 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* State-wise Performance Table */}
+        {/* State-wise Performance Bar Chart */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-300 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">State-wise Performance</h2>
-          <p className="text-sm text-gray-600 mb-6">Claims processing statistics by state</p>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">State</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Claims</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Resolved</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pending</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rejected</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Success Rate</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {stateWiseData.map((state, index) => {
-                  const successRate = ((state.resolved / state.claims) * 100).toFixed(1);
-                  return (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{state.name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{state.claims}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">{state.resolved}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-orange-600">{state.pending}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">{state.rejected}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-green-500 rounded-full" 
-                              style={{ width: `${successRate}%` }}
-                            ></div>
-                          </div>
-                          <span className="font-medium">{successRate}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">State-wise Performance</h2>
+              <p className="text-sm text-gray-600">Claims processing statistics by state</p>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 bg-green-600 rounded-full"></div>
+                <span>Resolved</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                <span>Pending</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                <span>Rejected</span>
+              </div>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart data={stateWiseData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis 
+                dataKey="name" 
+                stroke="#6B7280" 
+                fontSize={11}
+                angle={-45}
+                textAnchor="end"
+                height={80}
+              />
+              <YAxis stroke="#6B7280" fontSize={11} />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: '#fff', 
+                  border: '1px solid #d1d5db', 
+                  borderRadius: '6px',
+                  fontSize: '12px'
+                }}
+                formatter={(value, name) => [value.toLocaleString(), name]}
+              />
+              <Legend />
+              <Bar dataKey="resolved" fill="#16A34A" name="Resolved" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="pending" fill="#D97706" name="Pending" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="rejected" fill="#DC2626" name="Rejected" radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          
+          {/* Success Rate Summary */}
+          <div className="mt-6 pt-4 border-t border-gray-200">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Success Rates by State</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {stateWiseData.map((state, index) => {
+                const successRate = ((state.resolved / state.claims) * 100).toFixed(1);
+                return (
+                  <div key={index} className="text-center">
+                    <div className="text-xs text-gray-600 mb-1">{state.name}</div>
+                    <div className="text-lg font-bold text-gray-900">{successRate}%</div>
+                    <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-green-500 rounded-full transition-all duration-500" 
+                        style={{ width: `${successRate}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 

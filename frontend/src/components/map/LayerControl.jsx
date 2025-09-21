@@ -132,10 +132,10 @@ const LayerControl = () => {
 
   const getCurrentLevelColor = () => {
     switch (currentLevel) {
-      case 'search': return 'text-purple-600';
-      case 'subdistrict': return 'text-red-600';
-      case 'district': return 'text-orange-600';
-      case 'state': return 'text-blue-600';
+      case 'search': return 'text-green-600';
+      case 'subdistrict': return 'text-green-700';
+      case 'district': return 'text-green-600';
+      case 'state': return 'text-green-500';
       default: return 'text-gray-600';
     }
   };
@@ -171,7 +171,7 @@ const LayerControl = () => {
           : 'opacity-0 -translate-y-4 scale-95 pointer-events-none z-[1003]'
       }`}>
         <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden" style={{ width: '280px' }}>
-          <div className="bg-gradient-to-r from-purple-500 to-purple-600 px-4 py-3 text-white">
+          <div className="bg-gradient-to-r from-green-600 to-green-700 px-4 py-3 text-white">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold text-sm">Map Layers</h3>
             </div>
@@ -179,36 +179,36 @@ const LayerControl = () => {
           
           <div className="p-2">
             {/* Current Location Display */}
-            <div className="mb-3 p-3 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg">
-              <div className="text-xs text-gray-500 mb-1">Current View:</div>
+            <div className="mb-3 p-3 bg-gradient-to-r from-green-50 to-green-100 rounded-lg">
+              <div className="text-xs text-green-700 mb-1 font-medium">Current View:</div>
               <div className={`font-semibold text-sm ${getCurrentLevelColor()}`}>
                 {getBreadcrumb()}
               </div>
               {currentLevel !== 'india' && currentLevel !== 'search' && (
-                <div className="text-xs text-gray-400 mt-1">
+                <div className="text-xs text-green-600 mt-1">
                   Level: {currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1)}
                 </div>
               )}
             </div>
 
             {/* Boundary Toggle */}
-            <div className="mb-3 p-2 bg-gray-50 rounded-lg">
+            <div className="mb-3 p-2 bg-green-50 rounded-lg">
               <button
                 onClick={toggleBoundaries}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all duration-200 ${
                   boundariesEnabled
-                    ? 'bg-green-50 text-green-700 border-2 border-green-200' 
+                    ? 'bg-green-100 text-green-800 border-2 border-green-300' 
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
                 <div className="flex items-center space-x-2">
-                  <svg className={`w-4 h-4 ${boundariesEnabled ? 'text-green-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-4 h-4 ${boundariesEnabled ? 'text-green-600' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <span className="text-sm font-medium">Boundaries</span>
                 </div>
                 <div className={`w-10 h-6 rounded-full transition-colors duration-200 ${
-                  boundariesEnabled ? 'bg-green-400' : 'bg-gray-300'
+                  boundariesEnabled ? 'bg-green-500' : 'bg-gray-300'
                 }`}>
                   <div className={`w-4 h-4 bg-white rounded-full mt-1 transition-transform duration-200 ${
                     boundariesEnabled ? 'translate-x-5' : 'translate-x-1'
@@ -224,23 +224,23 @@ const LayerControl = () => {
                 onClick={() => key === 'claimableRegions' || key === 'forestReserves' ? toggleLayer(key) : changeTileLayer(key)}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-all duration-200 ${
                   key === selectedTileLayer
-                    ? 'bg-purple-50 text-purple-700 border-2 border-purple-200' 
-                    : 'text-gray-700 hover:bg-gray-50'
+                    ? 'bg-green-100 text-green-800 border-2 border-green-300' 
+                    : 'text-gray-700 hover:bg-green-50'
                 }`}
               >
-                <div className={key === selectedTileLayer ? 'text-purple-500' : 'text-gray-400'}>
+                <div className={key === selectedTileLayer ? 'text-green-600' : 'text-gray-400'}>
                   {layer.icon}
                 </div>
                 <span className="text-sm font-medium">{layer.name}</span>
                 {key === selectedTileLayer && (
-                  <div className="ml-auto w-2 h-2 bg-purple-500 rounded-full"></div>
+                  <div className="ml-auto w-2 h-2 bg-green-600 rounded-full"></div>
                 )}
               </button>
             ))}
             
             <button
               onClick={resetToIndia}
-              className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-50 mt-2 pt-2 border-t border-gray-100"
+              className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-green-50 mt-2 pt-2 border-t border-gray-100 transition-colors"
             >
               <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
