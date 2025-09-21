@@ -3,7 +3,6 @@ import { MapContainer as LeafletMap, TileLayer, GeoJSON, useMap } from 'react-le
 import L from 'leaflet';
 import { MapContext } from '../../context/MapContext';
 import LayerControl from './LayerControl';
-import MapLegend from './MapLegend';
 import SearchControl from './SearchControl'; 
 import DrawingTools from './DrawingTools';
 import ExportControl from './ExportControl';
@@ -522,7 +521,6 @@ const MapContainer = () => {
       <MapLayers />
       <LayerControl />
       <SearchControl />
-      <MapLegend />
       <DrawingTools />
       <ExportControl />
       <ImportControl />
