@@ -418,7 +418,7 @@ const SearchControl = () => {
       }`}>
         <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden" style={{ width: '340px' }}>
           {/* Header */}
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-3 text-white">
+          <div className="bg-gradient-to-r from-green-600 to-green-700 px-4 py-3 text-white">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold text-sm flex items-center">
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -503,8 +503,8 @@ const SearchControl = () => {
             </div>
 
             {/* Search Info */}
-            <div className="mb-4 p-2 bg-blue-50 rounded-lg">
-              <p className="text-xs text-blue-600">
+            <div className="mb-4 p-2 bg-green-50 rounded-lg">
+              <p className="text-xs text-green-700">
                 💡 You can search by state only, or narrow down to district/subdistrict level
               </p>
             </div>
@@ -514,7 +514,7 @@ const SearchControl = () => {
               <button
                 onClick={handleSearch}
                 disabled={!selectedState || isLoadingDistricts || isLoadingSubdistricts}
-                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium text-sm"
+                className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium text-sm"
               >
                 {(isLoadingDistricts || isLoadingSubdistricts) ? (
                   <div className="flex items-center justify-center">
