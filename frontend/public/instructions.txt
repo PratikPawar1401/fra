@@ -1,0 +1,1 @@
+add 'odisha_cfr_potential.tif' and 'odisha_villages.geojson' in the data folder

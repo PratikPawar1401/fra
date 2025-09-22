@@ -3,6 +3,11 @@ import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { MapContext } from '../../context/MapContext';
 
+// You'll need to install and import georaster and georaster-layer-for-leaflet
+// npm install georaster georaster-layer-for-leaflet
+import parseGeoraster from 'georaster';
+import GeoRasterLayer from 'georaster-layer-for-leaflet';
+
 const StateSpecificControl = () => {
   const map = useMap();
   const { 
@@ -55,7 +60,107 @@ const StateSpecificControl = () => {
     return folderMap[normalized] || normalized;
   };
 
-  // Load state boundaries
+  // Load TIF file for CFR potential
+  const loadCFRTiff = useCallback(async (stateName) => {
+    try {
+      setLoadingBoundaries(true);
+      
+      // Update this path to match your TIF file location
+      const url = '/data/odisha_cfr_potential.tif';
+      
+      console.log('Loading CFR TIF file from:', url);
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      // Get file info
+      const contentType = response.headers.get('content-type');
+      const contentLength = response.headers.get('content-length');
+      console.log('TIF file info:', { contentType, contentLength });
+      
+      // Check if we got HTML instead of a TIF file
+      if (contentType && (contentType.includes('text/html') || contentType.includes('text/plain'))) {
+        const text = await response.text();
+        console.log('Received HTML/text content:', text.substring(0, 200) + '...');
+        throw new Error(`File not found. Server returned HTML instead of TIF file. Check if the file exists at: ${url}`);
+      }
+      
+      // Check file size - TIF files should be much larger than a few hundred bytes
+      const contentLengthNum = parseInt(contentLength);
+      if (contentLengthNum && contentLengthNum < 1000) {
+        throw new Error(`File seems too small (${contentLengthNum} bytes) to be a valid TIF file. This might be an error page.`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      console.log('ArrayBuffer size:', arrayBuffer.byteLength);
+      
+      // Check magic bytes for TIF format
+      const uint8Array = new Uint8Array(arrayBuffer);
+      const magicBytes = Array.from(uint8Array.slice(0, 4));
+      const isTiff = (magicBytes[0] === 0x49 && magicBytes[1] === 0x49 && magicBytes[2] === 0x2A && magicBytes[3] === 0x00) || // Little endian TIFF
+                     (magicBytes[0] === 0x4D && magicBytes[1] === 0x4D && magicBytes[2] === 0x00 && magicBytes[3] === 0x2A);   // Big endian TIFF
+      
+      if (!isTiff) {
+        console.log('File magic bytes:', magicBytes.map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '));
+        throw new Error('File does not appear to be a valid TIFF file. Check the file format and ensure it\'s a GeoTIFF.');
+      }
+      
+      console.log('Valid TIFF magic bytes detected, attempting to parse...');
+      
+      // Try different parsing options
+      let georaster;
+      try {
+        // First try with default options
+        georaster = await parseGeoraster(arrayBuffer);
+      } catch (parseError) {
+        console.log('Default parsing failed, trying with options:', parseError.message);
+        
+        // Try with explicit options
+        try {
+          georaster = await parseGeoraster(arrayBuffer, {
+            cache: false,
+            parseValues: true
+          });
+        } catch (secondError) {
+          console.log('Parsing with options failed, trying URL directly:', secondError.message);
+          
+          // Try parsing from URL instead of buffer
+          georaster = await parseGeoraster(url);
+        }
+      }
+      
+      console.log('CFR TIF file loaded successfully.');
+      console.log('Georaster info:', {
+        width: georaster.width,
+        height: georaster.height,
+        bands: georaster.values ? georaster.values.length : 'unknown',
+        bounds: `${georaster.xmin}, ${georaster.ymin}, ${georaster.xmax}, ${georaster.ymax}`,
+        projection: georaster.projection
+      });
+      
+      return georaster;
+      
+    } catch (error) {
+      console.error(`Failed to load CFR TIF for ${stateName}:`, error);
+      
+      // More detailed error message
+      let errorMsg = error.message;
+      if (error.message.includes('Invalid byte order')) {
+        errorMsg = 'TIF file format issue - the file may be corrupted or in an unsupported format.';
+      } else if (error.message.includes('File not found') || error.message.includes('HTML instead')) {
+        errorMsg = 'TIF file not found at the specified path.';
+      }
+      
+      alert(`Failed to load CFR TIF for ${stateName}.\n\nError: ${errorMsg}\n\nPlease ensure:\n1. The file exists at /data/odisha_cfr_potential.tif\n2. The file is a valid GeoTIFF format\n3. The file is accessible from your web server`);
+      return null;
+    } finally {
+      setLoadingBoundaries(false);
+    }
+  }, [setLoadingBoundaries]);
+
+  // Load state boundaries (for non-CFR layers)
   const loadStateBoundaries = useCallback(async (stateName, layerType) => {
     try {
       setLoadingBoundaries(true);
@@ -63,11 +168,6 @@ const StateSpecificControl = () => {
 
       if (layerType === 'villages' && stateName === 'odisha') {
         url = '/data/odisha_villages.geojson';
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        data = await response.json();
-      } else if (layerType === 'cfrPotential' && stateName === 'odisha') {
-        url = '/data/odisha_cfr_potential.geojson';
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         data = await response.json();
@@ -101,7 +201,143 @@ const StateSpecificControl = () => {
     }
   }, [setLoadingBoundaries]);
 
-  // Add layer to map
+  // Add TIF layer to map
+  const addTiffLayerToMap = useCallback((georaster, layerType) => {
+    if (!georaster || !map) return null;
+
+    try {
+      // Validate georaster data
+      if (!georaster.values || georaster.values.length === 0) {
+        throw new Error('No raster data values found');
+      }
+
+      console.log('Georaster structure analysis:', {
+        valuesType: typeof georaster.values,
+        valuesLength: georaster.values.length,
+        firstBandType: typeof georaster.values[0],
+        firstBandLength: Array.isArray(georaster.values[0]) ? georaster.values[0].length : 'not array',
+        noDataValue: georaster.noDataValue,
+        mins: georaster.mins,
+        maxs: georaster.maxs,
+        projection: georaster.projection
+      });
+
+      // Check if we need coordinate transformation
+      if (georaster.projection && georaster.projection !== 4326) {
+        console.warn(`Raster is in projection ${georaster.projection}, but map is likely in EPSG:4326. Consider reprojecting the raster.`);
+      }
+
+      // Sample some actual pixel values for debugging (handle Uint8Arrays)
+      if (Array.isArray(georaster.values[0]) && georaster.values[0][0]) {
+        const firstRow = georaster.values[0][0]; // First row of first band
+        if (firstRow && typeof firstRow === 'object' && firstRow.length) {
+          const samplePixels = Array.from(firstRow.slice(0, 20));
+          console.log('First 20 actual pixel values from band 1:', samplePixels);
+        }
+      }
+
+      // Create a color ramp for CFR potential visualization
+      const colorScale = (value, min, max) => {
+        if (value === null || value === undefined || isNaN(value)) {
+          return 'rgba(0,0,0,0)'; // Transparent for null/undefined/NaN
+        }
+        
+        // For uint8 data, 0 is often background/nodata
+        if (value === 0) {
+          return 'rgba(0,0,0,0)'; // Transparent for zero values
+        }
+        
+        // Check for noData values
+        if (georaster.noDataValue !== undefined && value === georaster.noDataValue) {
+          return 'rgba(0,0,0,0)'; // Transparent for noData
+        }
+        
+        // Handle edge case where min === max
+        if (min === max) {
+          return 'rgba(0,255,0,0.7)'; // Default green
+        }
+        
+        // Normalize value between 0 and 1 (excluding zero values)
+        const effectiveMin = Math.max(min, 1); // Start from 1 instead of 0
+        const normalized = Math.max(0, Math.min(1, (value - effectiveMin) / (max - effectiveMin)));
+        
+        // Create a green color ramp (darker green = higher potential)
+        const red = Math.floor(255 * (1 - normalized));
+        const green = 255;
+        const blue = Math.floor(255 * (1 - normalized));
+        const alpha = 0.8; // More opaque for better visibility
+        
+        return `rgba(${red},${green},${blue},${alpha})`;
+      };
+
+      // Get min/max values for color scaling
+      let minValue, maxValue;
+      
+      // Use the built-in mins/maxs (which we know are 0-255)
+      if (georaster.mins && georaster.maxs && georaster.mins.length > 0) {
+        minValue = georaster.mins[0]; // Use first band
+        maxValue = georaster.maxs[0];
+        console.log('Using georaster built-in min/max:', { minValue, maxValue });
+      } else {
+        // Fallback to default uint8 range
+        minValue = 0;
+        maxValue = 255;
+      }
+
+      console.log('CFR TIF statistics:', {
+        totalPixels: georaster.width * georaster.height,
+        valueRange: `${minValue} to ${maxValue}`,
+        noDataValue: georaster.noDataValue,
+        bands: georaster.values.length,
+        dataType: 'Uint8 (0-255)',
+        projection: georaster.projection
+      });
+
+      const geoRasterLayer = new GeoRasterLayer({
+        georaster: georaster,
+        opacity: 0.8,
+        pixelValuesToColorFn: (pixelValues) => {
+          // Use first band for visualization
+          const pixelValue = pixelValues[0];
+          return colorScale(pixelValue, minValue, maxValue);
+        },
+        resolution: 512, // Higher resolution for better quality
+        // Add debugging
+        debugLevel: 1
+      });
+
+      geoRasterLayer.addTo(map);
+      
+      console.log('CFR Potential TIF layer added successfully');
+      
+      // Transform bounds from UTM to WGS84 for proper fitting
+      // Note: This is approximate transformation - for precise work, use proj4js
+      if (georaster.projection === 32644) {
+        // UTM Zone 44N to rough lat/lon conversion for Odisha region
+        // This is a rough approximation - consider using proj4js for accuracy
+        const utmBounds = {
+          xmin: georaster.xmin,
+          ymin: georaster.ymin,
+          xmax: georaster.xmax,
+          ymax: georaster.ymax
+        };
+        
+        console.log('UTM bounds:', utmBounds);
+        console.log('Note: Raster is in UTM projection. Consider reprojecting to EPSG:4326 for web maps.');
+        
+        // Don't auto-fit to UTM bounds as they won't make sense in web mercator
+        // Instead, let user manually navigate to the area
+      }
+      
+      return geoRasterLayer;
+    } catch (error) {
+      console.error('Error adding TIF layer to map:', error);
+      alert(`Error displaying TIF layer: ${error.message}`);
+      return null;
+    }
+  }, [map]);
+
+  // Add layer to map (for GeoJSON layers)
   const addLayerToMap = useCallback((data, layerType, stateName) => {
     if (!data || !map) return null;
 
@@ -113,8 +349,6 @@ const StateSpecificControl = () => {
           return { color: '#ff7733', weight: 2, fillOpacity: 0.1, fillColor: '#ff7733' };
         case 'subdistricts':
           return { color: '#ff4500', weight: 1.5, fillOpacity: 0.1, fillColor: '#ff4500', dashArray: '5, 5' };
-        case 'cfrPotential':
-          return { color: '#27ae60', weight: 2, fillOpacity: 0.3, fillColor: '#27ae60' };
         default:
           return { color: '#3388ff', weight: 2, fillOpacity: 0.1 };
       }
@@ -142,10 +376,6 @@ const StateSpecificControl = () => {
             const parentDistrict = props.dtname || props.DISTRICT || 'Unknown District';
             popupContent = `Subdistrict: ${subdistrictName}<br>District: ${parentDistrict}`;
             break;
-          case 'cfrPotential':
-            const cfrName = props.name || props.NAME || 'CFR Potential Area';
-            popupContent = `CFR Potential: ${cfrName}`;
-            break;
           default:
             popupContent = `${layerType}: ${Object.values(props)[0] || 'Unknown'}`;
         }
@@ -170,6 +400,11 @@ const StateSpecificControl = () => {
         stateLayersRef.current[layerType] = null;
       }
     });
+    
+    // Force map refresh to ensure all layers are properly updated
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 100);
   }, [map]);
 
   // Handle state selection
@@ -197,34 +432,77 @@ const StateSpecificControl = () => {
     const newState = !currentState;
     
     if (newState) {
-      // Load and add layer
-      const data = await loadStateBoundaries(selectedState, layerType);
-      if (data) {
-        // Remove existing layer if it exists
-        if (stateLayersRef.current[layerType]) {
-          try {
-            map.removeLayer(stateLayersRef.current[layerType]);
-          } catch (error) {
-            console.error('Error removing existing layer:', error);
+      let layer = null;
+      
+      if (layerType === 'cfrPotential' && selectedState === 'odisha') {
+        // Handle CFR TIF file
+        const georaster = await loadCFRTiff(selectedState);
+        if (georaster) {
+          // Remove existing layer if it exists
+          if (stateLayersRef.current[layerType]) {
+            try {
+              map.removeLayer(stateLayersRef.current[layerType]);
+            } catch (error) {
+              console.error('Error removing existing CFR layer:', error);
+            }
           }
-        }
 
-        const layer = addLayerToMap(data, layerType, selectedState);
-        if (layer) {
-          stateLayersRef.current[layerType] = layer;
-          
-          // Update state after successful layer addition
-          setLayerOptions(prev => ({ ...prev, [layerType]: true }));
-          
-          // Fit map to layer bounds
-          try {
-            map.fitBounds(layer.getBounds(), { padding: [20, 20] });
-          } catch (error) {
-            console.error('Error fitting bounds:', error);
+          layer = addTiffLayerToMap(georaster, layerType);
+          if (layer) {
+            stateLayersRef.current[layerType] = layer;
+            setLayerOptions(prev => ({ ...prev, [layerType]: true }));
+            
+            // Don't auto-fit to UTM bounds - instead zoom to Odisha region in lat/lon
+            try {
+              // Approximate bounds for Odisha state in lat/lon
+              const odishaBounds = [
+                [17.8, 81.3], // Southwest corner
+                [22.6, 87.5]  // Northeast corner
+              ];
+              map.fitBounds(odishaBounds, { padding: [20, 20] });
+              console.log('Zoomed to Odisha region instead of UTM bounds');
+            } catch (error) {
+              console.error('Error fitting bounds to Odisha:', error);
+            }
           }
-        } else {
-          setLayerOptions(prev => ({ ...prev, [layerType]: false }));
         }
+      } else {
+        // Handle regular GeoJSON layers
+        const data = await loadStateBoundaries(selectedState, layerType);
+        if (data) {
+          // Remove existing layer if it exists
+          if (stateLayersRef.current[layerType]) {
+            try {
+              map.removeLayer(stateLayersRef.current[layerType]);
+            } catch (error) {
+              console.error('Error removing existing layer:', error);
+            }
+          }
+
+          layer = addLayerToMap(data, layerType, selectedState);
+          if (layer) {
+            stateLayersRef.current[layerType] = layer;
+            setLayerOptions(prev => ({ ...prev, [layerType]: true }));
+            
+            // Only fit bounds if no CFR layer is active (to avoid zoom conflicts)
+            if (!layerOptions.cfrPotential) {
+              try {
+                map.fitBounds(layer.getBounds(), { padding: [20, 20] });
+              } catch (error) {
+                console.error('Error fitting bounds:', error);
+              }
+            } else {
+              // If CFR layer exists, just refresh the map
+              setTimeout(() => {
+                map.invalidateSize();
+              }, 100);
+            }
+          }
+        }
+      }
+      
+      if (!layer) {
+        setLayerOptions(prev => ({ ...prev, [layerType]: false }));
       }
     } else {
       // Remove layer
@@ -238,7 +516,7 @@ const StateSpecificControl = () => {
         }
       }
     }
-  }, [selectedState, layerOptions, loadStateBoundaries, addLayerToMap, map]);
+  }, [selectedState, layerOptions, loadStateBoundaries, loadCFRTiff, addLayerToMap, addTiffLayerToMap, map]);
 
   // Handle reset
   const handleReset = () => {
@@ -372,16 +650,16 @@ const StateSpecificControl = () => {
                     </span>
                   </label>
 
-                  <label className={`flex items-center space-x-3 p-2 rounded-lg transition-all duration-200 ${!currentStateInfo?.hasCFR ? 'opacity-50 cursor-not-allowed' : layerOptions.cfrPotential ? 'bg-blue-50' : 'hover:bg-gray-50 cursor-pointer'}`}>
+                  <label className={`flex items-center space-x-3 p-2 rounded-lg transition-all duration-200 ${!currentStateInfo?.hasCFR ? 'opacity-50 cursor-not-allowed' : layerOptions.cfrPotential ? 'bg-green-50' : 'hover:bg-gray-50 cursor-pointer'}`}>
                     <input
                       type="checkbox"
                       checked={layerOptions.cfrPotential}
                       onChange={() => handleLayerToggle('cfrPotential')}
                       disabled={!currentStateInfo?.hasCFR}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:opacity-50"
+                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 disabled:opacity-50"
                     />
                     <span className="text-sm font-medium text-gray-700">
-                      CFR Potential {!currentStateInfo?.hasCFR ? '(N/A)' : ''}
+                      CFR Potential (TIF) {!currentStateInfo?.hasCFR ? '(N/A)' : ''}
                     </span>
                   </label>
                 </div>
