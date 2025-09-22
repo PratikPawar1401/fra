@@ -7,6 +7,7 @@ import SearchControl from './SearchControl';
 import DrawingTools from './DrawingTools';
 import ExportControl from './ExportControl';
 import ImportControl from './ImportControl';
+import StateSpecificControl from './StateSpecificControl';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-geometryutil';
 
@@ -794,6 +795,7 @@ const MapContainer = () => {
       <ExportControl />
       <ImportControl />
       <ScaleControl /> 
+      <StateSpecificControl />
     </LeafletMap>
   );
 };
