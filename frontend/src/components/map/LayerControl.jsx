@@ -7,6 +7,7 @@ const LayerControl = () => {
   const [selectedTileLayer, setSelectedTileLayer] = useState('openstreetmap');
   const [currentTileLayer, setCurrentTileLayer] = useState(null);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [stateSpecificActive, setStateSpecificActive] = useState(false);
   const controlRef = useRef(null);
   const map = useMap();
   const { 
@@ -195,10 +196,13 @@ const LayerControl = () => {
             <div className="mb-3 p-2 bg-green-50 rounded-lg">
               <button
                 onClick={toggleBoundaries}
+                disabled={stateSpecificActive}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all duration-200 ${
-                  boundariesEnabled
-                    ? 'bg-green-100 text-green-800 border-2 border-green-300' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  stateSpecificActive 
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : boundariesEnabled
+                      ? 'bg-green-100 text-green-800 border-2 border-green-300' 
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
                 <div className="flex items-center space-x-2">

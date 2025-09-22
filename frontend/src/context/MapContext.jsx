@@ -21,6 +21,7 @@ export const MapProvider = ({ children }) => {
   const [selectedDistrict, setSelectedDistrict] = useState(null);
   const [selectedSubdistrict, setSelectedSubdistrict] = useState(null);
   const [selectedVillage, setSelectedVillage] = useState(null);
+  const [stateSpecificMode, setStateSpecificMode] = useState(false);
   const [boundaryLayers, setBoundaryLayers] = useState({ 
     states: null, 
     districts: null, 
@@ -222,6 +223,8 @@ export const MapProvider = ({ children }) => {
         addDrawnLayer,
         removeDrawnLayer,
         clearAllDrawnLayers,
+        stateSpecificMode,
+        setStateSpecificMode,
       }}
     >
       {children}
