@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { X, MapPin, FileText, Calendar, User, Map, Brain, ExternalLink, Edit, Check, ChevronDown, RefreshCw, AlertCircle, Trash2, AlertTriangle } from "lucide-react";
+import { useNavigate } from 'react-router-dom'; // ✅ Add this import
 
 const statusOptions = ["Pending", "Under Review", "Approved", "Rejected", "OCR Processed"];
 
 export default function DigitalLibrary() {
+  // ✅ Add navigate hook
+  const navigate = useNavigate();
+  
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -381,9 +385,12 @@ export default function DigitalLibrary() {
     }
   };
 
+  // ✅ Updated WebGIS handler with navigation
   const handleWebGISClick = (claim) => {
-    console.log(`Opening WebGIS for claim ${claim.claimId} at coordinates: ${claim.coordinates}`);
-    alert(`🗺️ WebGIS Integration\n\nClaim: ${claim.claimId}\nLocation: ${claim.coordinates}\nDistrict: ${claim.district}\n\nThis will open the integrated mapping interface.`);
+    console.log(`🗺️ Opening WebGIS for claim ${claim.claimId}`);
+    
+    // Navigate to ViewGIS page with claim ID
+    navigate(`/viewgis/${claim.backendId}`);
   };
 
   const handleDSSClick = (claim) => {
@@ -735,7 +742,7 @@ export default function DigitalLibrary() {
         </div>
       </div>
 
-      {/* Claim Details Popup - Enhanced with delete option */}
+      {/* Claim Details Popup - Enhanced with navigation */}
       {showPopup && selectedClaim && (
         <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -876,7 +883,7 @@ export default function DigitalLibrary() {
                 </p>
               </div>
 
-              {/* Action Buttons */}
+              {/* Action Buttons - Updated with navigation */}
               <div className="flex flex-col sm:flex-row gap-4">
                 <button
                   onClick={() => handleWebGISClick(selectedClaim)}

@@ -8,6 +8,7 @@ import Landing from './pages/landing/Landing';
 import Upload from './pages/upload/UploadPage';
 import DigitalLibrary from './pages/library/DigitalLibrary';
 import './App.css';
+import ViewGIS from './pages/viewGIS/view_GIS';
 
 function App() {
   return (
@@ -20,6 +21,8 @@ function App() {
             <Route path="/upload" element={<Upload />} />
             <Route path="/library" element={<DigitalLibrary />} />
             <Route path="/" element={<Landing />} />
+            {/* ViewGIS route */}
+            <Route path="/viewgis/:claimId" element={<ViewGIS />} />
           </Routes>
         </Layout>
       </Router>
