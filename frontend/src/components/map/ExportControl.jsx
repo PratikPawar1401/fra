@@ -6,6 +6,7 @@ const ExportControl = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportType, setExportType] = useState(null);
+  const [showShapesSubmenu, setShowShapesSubmenu] = useState(false);
   const controlRef = useRef(null);
   const map = useMap();
   
@@ -23,6 +24,7 @@ const ExportControl = () => {
     const handleClickOutside = (event) => {
         if (controlRef.current && !controlRef.current.contains(event.target) && isExpanded) {
         setIsExpanded(false);
+        setShowShapesSubmenu(false);
         }
     };
 
@@ -150,6 +152,77 @@ const ExportControl = () => {
     }
   };
 
+  // Convert drawn layers to GeoJSON format
+  const getDrawnShapesGeoJSON = () => {
+    if (!drawnLayers || drawnLayers.length === 0) return null;
+
+    const geoJsonFeatures = drawnLayers.map((layerData, index) => {
+      const feature = layerData.geoJson;
+      
+      // Enhance properties with measurements and metadata
+      const enhancedProperties = {
+        ...feature.properties,
+        shapeType: layerData.type,
+        createdAt: new Date().toISOString(),
+        exportedAt: new Date().toISOString(),
+        ...layerData.measurements
+      };
+
+      return {
+        ...feature,
+        properties: enhancedProperties
+      };
+    });
+
+    return {
+      type: 'FeatureCollection',
+      metadata: {
+        name: 'Drawn Shapes Export',
+        exportDate: new Date().toISOString(),
+        exportedBy: 'Map Application',
+        totalShapes: drawnLayers.length,
+        shapeTypes: [...new Set(drawnLayers.map(layer => layer.type))]
+      },
+      features: geoJsonFeatures
+    };
+  };
+
+  // Export drawn shapes as GeoJSON
+  const exportDrawnShapesGeoJSON = async () => {
+    setIsExporting(true);
+    setExportType('shapes-geojson');
+    
+    try {
+      const geoJsonData = getDrawnShapesGeoJSON();
+      if (!geoJsonData) {
+        alert('No drawn shapes to export');
+        return;
+      }
+
+      // Create and download file
+      const blob = new Blob([JSON.stringify(geoJsonData, null, 2)], {
+        type: 'application/json'
+      });
+      
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `drawn-shapes-${Date.now()}.geojson`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+    } catch (error) {
+      console.error('Error exporting drawn shapes as GeoJSON:', error);
+      alert('Error exporting drawn shapes as GeoJSON');
+    } finally {
+      setIsExporting(false);
+      setExportType(null);
+      setShowShapesSubmenu(false);
+    }
+  };
+
   // Convert GeoJSON to KML format
   const geoJsonToKml = (geoJson, title = 'Exported Data') => {
     let kml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -243,39 +316,17 @@ const ExportControl = () => {
   // Export drawn shapes as KML
   const exportDrawnShapesKML = async () => {
     setIsExporting(true);
-    setExportType('shapes');
+    setExportType('shapes-kml');
     
     try {
-      if (!drawnLayers || drawnLayers.length === 0) {
+      const geoJsonData = getDrawnShapesGeoJSON();
+      if (!geoJsonData) {
         alert('No drawn shapes to export');
         return;
       }
 
-      // Convert drawn layers to GeoJSON format
-      const geoJsonFeatures = drawnLayers.map((layerData, index) => {
-        const feature = layerData.geoJson;
-        
-        // Enhance properties with measurements
-        const enhancedProperties = {
-          ...feature.properties,
-          shapeType: layerData.type,
-          createdAt: new Date().toISOString(),
-          ...layerData.measurements
-        };
-
-        return {
-          ...feature,
-          properties: enhancedProperties
-        };
-      });
-
-      const geoJson = {
-        type: 'FeatureCollection',
-        features: geoJsonFeatures
-      };
-
       // Convert to KML
-      const kmlContent = geoJsonToKml(geoJson, 'Drawn Shapes Export');
+      const kmlContent = geoJsonToKml(geoJsonData, 'Drawn Shapes Export');
       
       // Create and download file
       const blob = new Blob([kmlContent], {
@@ -292,11 +343,12 @@ const ExportControl = () => {
       URL.revokeObjectURL(url);
       
     } catch (error) {
-      console.error('Error exporting drawn shapes:', error);
-      alert('Error exporting drawn shapes');
+      console.error('Error exporting drawn shapes as KML:', error);
+      alert('Error exporting drawn shapes as KML');
     } finally {
       setIsExporting(false);
       setExportType(null);
+      setShowShapesSubmenu(false);
     }
   };
 
@@ -392,14 +444,15 @@ const exportMapScreenshot = async () => {
     {
       id: 'shapes',
       name: 'Drawn Shapes',
-      description: 'Export annotations as KML',
+      description: 'Export annotations in multiple formats',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
         </svg>
       ),
-      action: exportDrawnShapesKML,
-      available: drawnLayers && drawnLayers.length > 0
+      action: () => setShowShapesSubmenu(!showShapesSubmenu),
+      available: drawnLayers && drawnLayers.length > 0,
+      hasSubmenu: true
     },
     {
       id: 'screenshot',
@@ -413,6 +466,31 @@ const exportMapScreenshot = async () => {
       ),
       action: exportMapScreenshot,
       available: true
+    }
+  ];
+
+  const shapesSubmenuOptions = [
+    {
+      id: 'shapes-geojson',
+      name: 'GeoJSON Format',
+      description: 'Standard geographic data format',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+      action: exportDrawnShapesGeoJSON
+    },
+    {
+      id: 'shapes-kml',
+      name: 'KML Format',
+      description: 'Google Earth compatible format',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" />
+        </svg>
+      ),
+      action: exportDrawnShapesKML
     }
   ];
 
@@ -436,7 +514,7 @@ const exportMapScreenshot = async () => {
       {/* Export Status Indicator */}
       {isExporting && (
         <div className="absolute -top-12 left-0 bg-green-500 text-white px-3 py-1 rounded-lg text-sm font-medium shadow-lg animate-pulse">
-          Exporting {exportType}...
+          Exporting {exportType?.replace('-', ' ')}...
         </div>
       )}
 
@@ -495,37 +573,78 @@ const exportMapScreenshot = async () => {
           {/* Export Options */}
           <div className="p-4 space-y-3">
             {exportOptions.map((option) => (
-              <button
-                key={option.id}
-                onClick={option.action}
-                disabled={isExporting || !option.available}
-                className={`w-full flex items-center space-x-3 p-3 rounded-lg border-2 transition-all duration-200 text-left ${
-                  exportType === option.id 
-                    ? 'border-green-500 bg-green-50 text-green-700' 
-                    : option.available
-                      ? 'border-gray-200 hover:border-green-300 hover:bg-green-50 text-gray-700 cursor-pointer'
-                      : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
-                } ${isExporting && exportType !== option.id ? 'opacity-50' : ''}`}
-              >
-                <div className={`${option.available ? 'text-green-600' : 'text-gray-400'}`}>
-                  {option.icon}
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium text-sm">{option.name}</div>
-                  <div className="text-xs opacity-75">{option.description}</div>
-                  {!option.available && option.id === 'boundary' && (
-                    <div className="text-xs text-red-500 mt-1">No boundary selected</div>
-                  )}
-                  {!option.available && option.id === 'shapes' && (
-                    <div className="text-xs text-red-500 mt-1">No shapes drawn</div>
-                  )}
-                </div>
-                {option.id === 'shapes' && drawnLayers && drawnLayers.length > 0 && (
-                  <div className="text-xs text-green-600 font-semibold">
-                    ({drawnLayers.length})
+              <div key={option.id}>
+                <button
+                  onClick={option.action}
+                  disabled={isExporting || !option.available}
+                  className={`w-full flex items-center space-x-3 p-3 rounded-lg border-2 transition-all duration-200 text-left ${
+                    exportType?.startsWith(option.id) 
+                      ? 'border-green-500 bg-green-50 text-green-700' 
+                      : option.available
+                        ? 'border-gray-200 hover:border-green-300 hover:bg-green-50 text-gray-700 cursor-pointer'
+                        : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
+                  } ${isExporting && !exportType?.startsWith(option.id) ? 'opacity-50' : ''}`}
+                >
+                  <div className={`${option.available ? 'text-green-600' : 'text-gray-400'}`}>
+                    {option.icon}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">{option.name}</div>
+                    <div className="text-xs opacity-75">{option.description}</div>
+                    {!option.available && option.id === 'boundary' && (
+                      <div className="text-xs text-red-500 mt-1">No boundary selected</div>
+                    )}
+                    {!option.available && option.id === 'shapes' && (
+                      <div className="text-xs text-red-500 mt-1">No shapes drawn</div>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {option.id === 'shapes' && drawnLayers && drawnLayers.length > 0 && (
+                      <div className="text-xs text-green-600 font-semibold">
+                        ({drawnLayers.length})
+                      </div>
+                    )}
+                    {option.hasSubmenu && (
+                      <svg 
+                        className={`w-4 h-4 transition-transform duration-200 ${
+                          showShapesSubmenu ? 'rotate-180' : ''
+                        }`} 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    )}
+                  </div>
+                </button>
+                
+                {/* Shapes Submenu */}
+                {option.id === 'shapes' && showShapesSubmenu && option.available && (
+                  <div className="mt-2 ml-4 space-y-2">
+                    {shapesSubmenuOptions.map((subOption) => (
+                      <button
+                        key={subOption.id}
+                        onClick={subOption.action}
+                        disabled={isExporting}
+                        className={`w-full flex items-center space-x-3 p-2 rounded-md border transition-all duration-200 text-left ${
+                          exportType === subOption.id 
+                            ? 'border-green-500 bg-green-50 text-green-700' 
+                            : 'border-gray-200 hover:border-green-300 hover:bg-green-50 text-gray-600 cursor-pointer'
+                        } ${isExporting && exportType !== subOption.id ? 'opacity-50' : ''}`}
+                      >
+                        <div className="text-green-600">
+                          {subOption.icon}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">{subOption.name}</div>
+                          <div className="text-xs opacity-75">{subOption.description}</div>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 )}
-              </button>
+              </div>
             ))}
           </div>
 

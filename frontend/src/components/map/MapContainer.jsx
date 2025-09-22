@@ -54,14 +54,17 @@ const MapLayers = () => {
     selectedState, setSelectedState,
     selectedDistrict, setSelectedDistrict,
     selectedSubdistrict, setSelectedSubdistrict,
+    selectedVillage, setSelectedVillage,
     boundaryLayers, setBoundaryLayers,
     geoJsonData, setGeoJsonData,
     loadingBoundaries, setLoadingBoundaries,
     boundariesEnabled,
+    isVillageDataAvailable,
   } = useContext(MapContext);
 
   const districtsLayerRef = useRef(null);
   const subdistrictsLayerRef = useRef(null);
+  const villagesLayerRef = useRef(null);
 
   // Helper function to normalize names
   const normalizeStateName = (name) => {
@@ -195,11 +198,77 @@ const MapLayers = () => {
     }
   }, [boundariesEnabled, geoJsonData.subdistricts, setGeoJsonData, setLoadingBoundaries]);
 
+  // Function to load villages
+const loadVillages = useCallback(async (stateName) => {
+  if (!boundariesEnabled) return;
+
+  const normalizedState = normalizeStateName(stateName);
+  
+  // Check if village data is available for this state
+  if (!isVillageDataAvailable(stateName)) {
+    console.warn(`Village data not available for ${stateName}`);
+    alert(`Village boundaries are not available for ${stateName}. Currently only available for Odisha.`);
+    return;
+  }
+
+  if (geoJsonData.villages[normalizedState]) {
+    console.log(`Villages for ${stateName} already loaded`);
+    return;
+  }
+
+  setLoadingBoundaries(true);
+  try {
+    let url;
+    
+    // For Odisha, load from public directory
+    if (normalizedState === 'ODISHA') {
+      // File should be in public/data/odisha_villages.geojson
+      url = '/data/odisha_villages.geojson';  // Remove quotes and use relative path
+      console.log(`Loading villages for ${stateName} from: ${url}`);
+    } else {
+      // For other states, try to fetch from remote source (will likely fail)
+      const folderName = getStateFolderName(stateName);
+      const encodedFolderName = encodeURIComponent(folderName);
+      const fileName = `${folderName}_VILLAGES`;
+      const encodedFileName = encodeURIComponent(fileName);
+      url = `https://raw.githubusercontent.com/datta07/INDIAN-SHAPEFILES/master/STATES/${encodedFolderName}/${encodedFileName}.geojson`;
+      console.log(`Attempting to fetch villages for ${stateName}: ${url}`);
+    }
+    
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText} - Village file not found for ${stateName}`);
+    }
+    
+    const data = await response.json();
+    if (data.type !== 'FeatureCollection') {
+      throw new Error('Invalid GeoJSON format');
+    }
+    
+    console.log(`Villages for ${stateName} loaded successfully. Found ${data.features.length} villages.`);
+    setGeoJsonData((prev) => ({
+      ...prev,
+      villages: { ...prev.villages, [normalizedState]: data },
+    }));
+  } catch (error) {
+    console.error(`Failed to load villages for ${stateName}:`, error);
+    if (error.message.includes('404') || error.message.includes('not found')) {
+      alert(`Village data file not found for ${stateName}. Please ensure the file is placed in the public/data/ directory.`);
+    } else if (error.message.includes('JSON')) {
+      alert(`Invalid village data format for ${stateName}. Please check the GeoJSON file.`);
+    } else {
+      alert(`Failed to load villages for ${stateName}. ${error.message}`);
+    }
+  } finally {
+    setLoadingBoundaries(false);
+  }
+}, [boundariesEnabled, geoJsonData.villages, setGeoJsonData, setLoadingBoundaries, isVillageDataAvailable]);
+
   // Remove all boundary layers when boundaries are disabled
   useEffect(() => {
     if (!boundariesEnabled && currentLevel !== 'search') {
       console.log('Boundaries disabled, removing navigation layers only');
-      ['states', 'districts', 'subdistricts'].forEach(layerType => {
+      ['states', 'districts', 'subdistricts', 'villages'].forEach(layerType => {
         if (boundaryLayers[layerType]) {
           try {
             map.removeLayer(boundaryLayers[layerType]);
@@ -210,20 +279,22 @@ const MapLayers = () => {
       });
       districtsLayerRef.current = null;
       subdistrictsLayerRef.current = null;
+      villagesLayerRef.current = null;
       
       // Only update state if necessary to avoid infinite loops
       setBoundaryLayers(prev => {
-        if (prev.states || prev.districts || prev.subdistricts) {
-          return { states: null, districts: null, subdistricts: null };
+        if (prev.states || prev.districts || prev.subdistricts || prev.villages) {
+          return { states: null, districts: null, subdistricts: null, villages: null };
         }
         return prev;
       });
       if (selectedState !== null) setSelectedState(null);
       if (selectedDistrict !== null) setSelectedDistrict(null);
       if (selectedSubdistrict !== null) setSelectedSubdistrict(null);
+      if (selectedVillage !== null) setSelectedVillage(null);
       if (currentLevel !== 'india') setCurrentLevel('india');
     }
-  }, [boundariesEnabled, currentLevel, map, setSelectedState, setSelectedDistrict, setSelectedSubdistrict, setCurrentLevel]);
+  }, [boundariesEnabled, currentLevel, map, setSelectedState, setSelectedDistrict, setSelectedSubdistrict, setSelectedVillage, setCurrentLevel]);
 
   // Add states layer
   useEffect(() => {
@@ -243,28 +314,27 @@ const MapLayers = () => {
           if (!stateName || !boundariesEnabled) return;
           console.log(`State clicked: ${stateName}`);
           
-          // Remove existing district and subdistrict layers
-          if (districtsLayerRef.current) {
-            console.log('Removing existing districts layer before state change');
-            try {
-              map.removeLayer(districtsLayerRef.current);
-              districtsLayerRef.current = null;
-            } catch (error) {
-              console.error('Error removing districts layer:', error);
-            }
-          }
-          if (subdistrictsLayerRef.current) {
-            console.log('Removing existing subdistricts layer before state change');
-            try {
-              map.removeLayer(subdistrictsLayerRef.current);
-              subdistrictsLayerRef.current = null;
-            } catch (error) {
-              console.error('Error removing subdistricts layer:', error);
-            }
-          }
+          // Remove existing layers
+          const layersToRemove = [
+            { ref: districtsLayerRef, name: 'districts' },
+            { ref: subdistrictsLayerRef, name: 'subdistricts' },
+            { ref: villagesLayerRef, name: 'villages' }
+          ];
           
-          setBoundaryLayers((prev) => ({ ...prev, districts: null, subdistricts: null }));
-          
+          layersToRemove.forEach(({ ref, name }) => {
+            if (ref.current) {
+              console.log(`Removing existing ${name} layer before state change`);
+              try {
+                map.removeLayer(ref.current);
+                ref.current = null;
+              } catch (error) {
+                console.error(`Error removing ${name} layer:`, error);
+              }
+            }
+          });
+
+          setBoundaryLayers((prev) => ({ ...prev, districts: null, subdistricts: null, villages: null }));
+
           try {
             map.fitBounds(layer.getBounds(), { padding: [50, 50] });
           } catch (error) {
@@ -274,16 +344,24 @@ const MapLayers = () => {
           setSelectedState(stateName);
           setSelectedDistrict(null);
           setSelectedSubdistrict(null);
+          setSelectedVillage(null);
           setCurrentLevel('state');
           loadDistricts(stateName);
         });
-        layer.bindPopup(`State: ${stateName}`);
+
+        // Enhanced popup with village data availability info
+        const hasVillageData = isVillageDataAvailable(stateName);
+        const villageInfo = hasVillageData ? 
+          '<br><small style="color: green;">✓ Village data available</small>' :
+          '<br><small style="color: #888;">Village data not available</small>';
+
+        layer.bindPopup(`State: ${stateName}${villageInfo}`);
       },
     }).addTo(map);
     
     setBoundaryLayers((prev) => ({ ...prev, states: statesLayer }));
     console.log('States layer added successfully');
-  }, [boundariesEnabled, geoJsonData.states, boundaryLayers.states, map, setBoundaryLayers, setSelectedState, setSelectedDistrict, setSelectedSubdistrict, setCurrentLevel, loadDistricts]);
+  }, [boundariesEnabled, geoJsonData.states, boundaryLayers.states, map, setBoundaryLayers, setSelectedState, setSelectedDistrict, setSelectedSubdistrict, setSelectedVillage, setCurrentLevel, loadDistricts]);
 
   // Add districts layer
   useEffect(() => {
@@ -303,8 +381,8 @@ const MapLayers = () => {
 
     const normalizedState = normalizeStateName(selectedState);
     const districtData = geoJsonData.districts[normalizedState];
-    
-    if (!districtData || !['state', 'district', 'subdistrict'].includes(currentLevel)) {
+
+    if (!districtData || !['state', 'district', 'subdistrict', 'village'].includes(currentLevel)) {
       return;
     }
 
@@ -318,16 +396,29 @@ const MapLayers = () => {
             if (!distName || !boundariesEnabled || !selectedState) return;
             console.log(`District clicked: ${distName}`);
             
-            if (subdistrictsLayerRef.current) {
-              console.log('Removing existing subdistricts layer before district change');
-              try {
-                map.removeLayer(subdistrictsLayerRef.current);
-                subdistrictsLayerRef.current = null;
-              } catch (error) {
-                console.error('Error removing subdistricts layer:', error);
+            // Remove existing subdistrict and village layers
+            const layersToRemove = [
+              { ref: subdistrictsLayerRef, name: 'subdistricts' },
+              { ref: villagesLayerRef, name: 'villages' }
+            ];
+            
+            layersToRemove.forEach(({ ref, name }) => {
+              if (ref.current) {
+                console.log(`Removing existing ${name} layer before district change`);
+                try {
+                  map.removeLayer(ref.current);
+                  ref.current = null;
+                } catch (error) {
+                  console.error(`Error removing ${name} layer:`, error);
+                }
               }
-              setBoundaryLayers((prev) => ({ ...prev, subdistricts: null }));
-            }
+            });
+            
+            setBoundaryLayers((prev) => ({ 
+              ...prev, 
+              subdistricts: null, 
+              villages: null 
+            }));
             
             try {
               map.fitBounds(layer.getBounds());
@@ -337,6 +428,7 @@ const MapLayers = () => {
             
             setSelectedDistrict(distName);
             setSelectedSubdistrict(null);
+            setSelectedVillage(null);
             setCurrentLevel('district');
             loadSubdistricts(selectedState, distName);
           });
@@ -348,7 +440,7 @@ const MapLayers = () => {
       setBoundaryLayers((prev) => ({ ...prev, districts: districtsLayer }));
       console.log('Districts layer added successfully');
     }
-  }, [boundariesEnabled, selectedState, geoJsonData.districts, currentLevel, map, setBoundaryLayers, setSelectedDistrict, setSelectedSubdistrict, setCurrentLevel, loadSubdistricts]);
+  }, [boundariesEnabled, selectedState, geoJsonData.districts, currentLevel, map, setBoundaryLayers, setSelectedDistrict, setSelectedSubdistrict, setSelectedVillage, setCurrentLevel, loadSubdistricts]);
 
   // Add subdistricts layer
   useEffect(() => {
@@ -369,7 +461,7 @@ const MapLayers = () => {
     const normalizedState = normalizeStateName(selectedState);
     const stateSubdistrictsData = geoJsonData.subdistricts[normalizedState];
     
-    if (!stateSubdistrictsData || !['district', 'subdistrict'].includes(currentLevel)) {
+    if (!stateSubdistrictsData || !['district', 'subdistrict', 'village'].includes(currentLevel)) {
       return;
     }
 
@@ -409,6 +501,18 @@ const MapLayers = () => {
             if (!subdistName || !boundariesEnabled || !selectedState || !selectedDistrict) return;
             console.log(`Subdistrict clicked: ${subdistName}`);
             
+            // Remove existing village layer
+            if (villagesLayerRef.current) {
+              console.log('Removing existing villages layer before subdistrict change');
+              try {
+                map.removeLayer(villagesLayerRef.current);
+                villagesLayerRef.current = null;
+              } catch (error) {
+                console.error('Error removing villages layer:', error);
+              }
+              setBoundaryLayers((prev) => ({ ...prev, villages: null }));
+            }
+
             try {
               map.fitBounds(layer.getBounds());
             } catch (error) {
@@ -416,10 +520,22 @@ const MapLayers = () => {
             }
             
             setSelectedSubdistrict(subdistName);
+            setSelectedVillage(null);
             setCurrentLevel('subdistrict');
+
+            // Load villages if available for this state
+            if (isVillageDataAvailable(selectedState)) {
+              loadVillages(selectedState);
+            }
           });
-          
-          layer.bindPopup(`Subdistrict: ${subdistName}<br>District: ${districtName}`);
+
+          // Enhanced popup with village loading option
+          const hasVillageData = isVillageDataAvailable(selectedState);
+          const villageInfo = hasVillageData ? 
+            '<br><small style="color: green;">Click to load villages</small>' :
+            '<br><small style="color: #888;">Villages not available</small>';
+
+          layer.bindPopup(`Subdistrict: ${subdistName}<br>District: ${districtName}${villageInfo}`);
         },
       }).addTo(map);
       
@@ -427,7 +543,119 @@ const MapLayers = () => {
       setBoundaryLayers((prev) => ({ ...prev, subdistricts: subdistrictsLayer }));
       console.log('Subdistricts layer added successfully');
     }
-  }, [boundariesEnabled, selectedState, selectedDistrict, geoJsonData.subdistricts, currentLevel, map, setBoundaryLayers, setSelectedSubdistrict, setCurrentLevel]);
+  }, [boundariesEnabled, selectedState, selectedDistrict, geoJsonData.subdistricts, currentLevel, map, setBoundaryLayers, setSelectedSubdistrict, setSelectedVillage, setCurrentLevel, isVillageDataAvailable, loadVillages]);
+
+  // Add villages layer
+  useEffect(() => {
+    if (currentLevel === 'search' || !boundariesEnabled || !selectedState || !selectedSubdistrict) {
+      if (villagesLayerRef.current) {
+        console.log('Removing villages layer due to invalid conditions');
+        try {
+          map.removeLayer(villagesLayerRef.current);
+          villagesLayerRef.current = null;
+        } catch (error) {
+          console.error('Error removing villages layer:', error);
+        }
+        setBoundaryLayers((prev) => ({ ...prev, villages: null }));
+      }
+      return;
+    }
+
+    const normalizedState = normalizeStateName(selectedState);
+    const stateVillagesData = geoJsonData.villages[normalizedState];
+    
+    if (!stateVillagesData || currentLevel !== 'subdistrict') {
+      return;
+    }
+
+    if (!villagesLayerRef.current) {
+      console.log(`Adding villages layer for ${selectedSubdistrict}, ${selectedDistrict}, ${selectedState}`);
+      
+      // Filter villages by subdistrict (and district if needed)
+      const filteredFeatures = stateVillagesData.features.filter(feature => {
+        // Adjust property names based on your village GeoJSON structure
+        const featureSubdistrictName = feature.properties.SUB_DIST || feature.properties.subdistrict_name || feature.properties.tehsil;
+        const featureDistrictName = feature.properties.DISTRICT || feature.properties.district_name;
+        
+        console.log(`Checking village: ${feature.properties.NAME}, SUB_DIST: ${featureSubdistrictName}, DISTRICT: ${featureDistrictName}`);
+
+        // Primary filter by subdistrict
+        const subdistrictMatch = featureSubdistrictName === selectedSubdistrict;
+        
+        // Secondary filter by district if available
+        const districtMatch = !featureDistrictName || featureDistrictName === selectedDistrict;
+        
+        if (subdistrictMatch && districtMatch) {
+          console.log(`✓ Village matched: ${feature.properties.NAME}`);
+        }
+
+        return subdistrictMatch && districtMatch;
+      });
+      
+      console.log(`Found ${filteredFeatures.length} villages for subdistrict: ${selectedSubdistrict}`);
+      
+      if (filteredFeatures.length === 0) {
+        console.warn(`No villages found for subdistrict: ${selectedSubdistrict}`);
+        alert(`No villages found for ${selectedSubdistrict}. This might be due to name mismatch or missing data.`);
+        return;
+      }
+      
+      const filteredGeoJSON = {
+        type: 'FeatureCollection',
+        features: filteredFeatures,
+      };
+      
+      const villagesLayer = L.geoJSON(filteredGeoJSON, {
+        style: {
+          color: '#e74c3c', // Red color for villages
+          weight: 2,
+          opacity: 0.8,
+          fillOpacity: 0.2,
+          fillColor: '#e74c3c',
+        },
+        onEachFeature: (feature, layer) => {
+          // Adjust property names based on your village GeoJSON structure
+          const villageName = feature.properties.NAME || 
+                             feature.properties.vname || 
+                             feature.properties.name || 
+                             'Unknown Village';
+          const subdistName = feature.properties.SUB_DIST || 
+                             feature.properties.subdistrict_name || 
+                             feature.properties.tehsil || 
+                             'Unknown Subdistrict';
+          const distName = feature.properties.DISTRICT || 
+                          feature.properties.district_name || 
+                          'Unknown District';
+          
+          layer.on('click', () => {
+            if (!villageName || !boundariesEnabled) return;
+            console.log(`Village clicked: ${villageName}`);
+            
+            try {
+              map.fitBounds(layer.getBounds());
+            } catch (error) {
+              console.error('Error getting bounds:', error);
+            }
+            
+            setSelectedVillage(villageName);
+            setCurrentLevel('village');
+          });
+          
+          layer.bindPopup(`
+            Village: ${villageName}<br>
+            Subdistrict: ${subdistName}<br>
+            District: ${distName}
+          `);
+        },
+      }).addTo(map);
+      
+      villagesLayerRef.current = villagesLayer;
+      setBoundaryLayers((prev) => ({ ...prev, villages: villagesLayer }));
+      console.log('Villages layer added successfully');
+    }
+  }, [boundariesEnabled, selectedState, selectedDistrict, selectedSubdistrict, geoJsonData.villages, currentLevel, map, setBoundaryLayers, setSelectedVillage, setCurrentLevel]);
+
+
 
   // Reset to India view
   useEffect(() => {
@@ -440,47 +668,88 @@ const MapLayers = () => {
   // Cleanup effect when selectedState changes
   useEffect(() => {
     return () => {
-      if (districtsLayerRef.current) {
-        console.log('State changed - removing districts layer');
-        try {
-          map.removeLayer(districtsLayerRef.current);
-          districtsLayerRef.current = null;
-        } catch (error) {
-          console.error('Error removing districts layer:', error);
+      const layersToCleanup = [
+        { ref: districtsLayerRef, name: 'districts' },
+        { ref: subdistrictsLayerRef, name: 'subdistricts' },
+        { ref: villagesLayerRef, name: 'villages' }
+      ];
+      
+      layersToCleanup.forEach(({ ref, name }) => {
+        if (ref.current) {
+          console.log(`State changed - removing ${name} layer`);
+          try {
+            map.removeLayer(ref.current);
+            ref.current = null;
+          } catch (error) {
+            console.error(`Error removing ${name} layer:`, error);
+          }
         }
-        setBoundaryLayers((prev) => ({ ...prev, districts: null }));
-      }
-      if (subdistrictsLayerRef.current) {
-        console.log('State changed - removing subdistricts layer');
-        try {
-          map.removeLayer(subdistrictsLayerRef.current);
-          subdistrictsLayerRef.current = null;
-        } catch (error) {
-          console.error('Error removing subdistricts layer:', error);
-        }
-        setBoundaryLayers((prev) => ({ ...prev, subdistricts: null }));
-      }
+      });
+      
+      setBoundaryLayers((prev) => ({ 
+        ...prev, 
+        districts: null, 
+        subdistricts: null, 
+        villages: null 
+      }));
+      
       if (selectedDistrict !== null) setSelectedDistrict(null);
       if (selectedSubdistrict !== null) setSelectedSubdistrict(null);
+      if (selectedVillage !== null) setSelectedVillage(null);
     };
-  }, [selectedState, map, setBoundaryLayers, setSelectedDistrict, setSelectedSubdistrict]);
+  }, [selectedState, map, setBoundaryLayers, setSelectedDistrict, setSelectedSubdistrict, setSelectedVillage]);
 
   // Cleanup effect when selectedDistrict changes
   useEffect(() => {
     if (currentLevel === 'search') return;
 
-    if (!selectedDistrict && subdistrictsLayerRef.current) {
-      console.log('District cleared - removing subdistrict layer');
-      try {
-        map.removeLayer(subdistrictsLayerRef.current);
-        subdistrictsLayerRef.current = null;
-      } catch (error) {
-        console.error('Error removing subdistrict layer:', error);
-      }
-      setBoundaryLayers((prev) => ({ ...prev, subdistricts: null }));
+    if (!selectedDistrict) {
+      const layersToCleanup = [
+        { ref: subdistrictsLayerRef, name: 'subdistricts' },
+        { ref: villagesLayerRef, name: 'villages' }
+      ];
+      
+      layersToCleanup.forEach(({ ref, name }) => {
+        if (ref.current) {
+          console.log(`District cleared - removing ${name} layer`);
+          try {
+            map.removeLayer(ref.current);
+            ref.current = null;
+          } catch (error) {
+            console.error(`Error removing ${name} layer:`, error);
+          }
+        }
+      });
+      
+      setBoundaryLayers((prev) => ({ 
+        ...prev, 
+        subdistricts: null, 
+        villages: null 
+      }));
+      
       if (selectedSubdistrict !== null) setSelectedSubdistrict(null);
+      if (selectedVillage !== null) setSelectedVillage(null);
     }
-  }, [selectedDistrict, currentLevel, map, setBoundaryLayers, setSelectedSubdistrict]);
+  }, [selectedDistrict, currentLevel, map, setBoundaryLayers, setSelectedSubdistrict, setSelectedVillage]);
+
+  // Cleanup effect when selectedSubdistrict changes
+  useEffect(() => {
+    if (currentLevel === 'search') return;
+
+    if (!selectedSubdistrict && villagesLayerRef.current) {
+      console.log('Subdistrict cleared - removing villages layer');
+      try {
+        map.removeLayer(villagesLayerRef.current);
+        villagesLayerRef.current = null;
+      } catch (error) {
+        console.error('Error removing villages layer:', error);
+      }
+      setBoundaryLayers((prev) => ({ ...prev, villages: null }));
+      if (selectedVillage !== null) setSelectedVillage(null);
+    }
+  }, [selectedSubdistrict, currentLevel, map, setBoundaryLayers, setSelectedVillage]);
+
+
 
   const getStateFolderName = (stateName) => {
     const folderMap = {
