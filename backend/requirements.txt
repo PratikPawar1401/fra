@@ -1,0 +1,38 @@
+# Core FastAPI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# HTTP client
+httpx==0.25.2
+requests==2.31.0
+
+# Configuration
+python-dotenv==1.0.0
+
+# Database (PostgreSQL + PostGIS)
+psycopg2-binary==2.9.7
+sqlalchemy==2.0.23
+geoalchemy2==0.14.2
+alembic==1.12.1
+
+# Authentication & Security  
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+
+# File handling & Cloud storage
+boto3==1.34.0
+pillow==10.1.0
+
+# Data processing
+pandas==2.1.4
+numpy==1.25.2
+
+# AI Pipeline dependencies  
+unstract-llmwhisperer==2.0.0
+
+# Geospatial processing (for future WebGIS)
+shapely==2.0.2
+pyproj==3.6.1
