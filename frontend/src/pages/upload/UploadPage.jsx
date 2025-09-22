@@ -586,7 +586,7 @@ Your claim has been automatically saved to the Atlas database and is ready for r
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">🌳 Aṭavī Atlas - Submit Forest Rights Claim</h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">🌳 Submit Forest Rights Claim</h1>
         <p className="text-gray-600">
           Follow the steps below to submit your forest rights claim application through the Atlas system.
         </p>

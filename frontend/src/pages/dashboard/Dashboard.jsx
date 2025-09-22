@@ -67,8 +67,8 @@ const Dashboard = () => {
     <div className="min-h-screen bg-gray-100">
       {/* Government Header */}
       <div className="bg-white border-b border-gray-300 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
+        <div className="w-full px-0 py-4">
+          <div className="flex items-center justify-between px-6">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-green-700 rounded flex items-center justify-center">
                 <FileText className="w-7 h-7 text-white" />
@@ -91,7 +91,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
+      <div className="w-full px-4 py-6">
         {/* Controls */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 mb-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
