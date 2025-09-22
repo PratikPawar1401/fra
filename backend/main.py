@@ -1,10 +1,11 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
 import os
 from datetime import datetime
+from typing import Optional
 from dotenv import load_dotenv
 
 # Import route modules (we'll create these step by step)
@@ -20,6 +21,15 @@ except ImportError:
     AI_PIPELINE_AVAILABLE = False
     print("⚠️  AI Pipeline not available - install dependencies or check ai-pipeline setup")
 
+# ✅ Claims service integration
+try:
+    from services.claims_service import claims_service
+    CLAIMS_SERVICE_AVAILABLE = True
+    print("✅ Claims service loaded successfully")
+except ImportError:
+    CLAIMS_SERVICE_AVAILABLE = False
+    print("⚠️  Claims service not available - check database setup")
+
 load_dotenv()
 
 @asynccontextmanager
@@ -28,7 +38,7 @@ async def lifespan(app: FastAPI):
     print("🌳 Starting Aṭavī Atlas - FRA Decision Support System...")
     print(f"🎯 Pilot State: Odisha")
     print(f"📡 AI Pipeline: {'✅ Available' if AI_PIPELINE_AVAILABLE else '❌ Unavailable'}")
-    print(f"🗃️  Database: PostgreSQL + PostGIS (Coming)")
+    print(f"🗃️  Claims Service: {'✅ Available' if CLAIMS_SERVICE_AVAILABLE else '❌ Unavailable'}")
     print(f"📊 WebGIS: PostGIS Integration (Coming)")
     print("✅ Aṭavī Atlas API Gateway Online!")
     
@@ -114,18 +124,20 @@ async def root():
         "description": "AI-powered FRA monitoring and decision support for integrated forest rights implementation",
         "team": "EdgeViz - SIH 2025",
         "services": {
-            "claims_management": "🔄 Coming",
+            "claims_management": "✅ Active" if CLAIMS_SERVICE_AVAILABLE else "❌ Unavailable",
             "document_ocr": "✅ Active" if AI_PIPELINE_AVAILABLE else "❌ Unavailable", 
             "webgis": "🔄 Coming",
             "asset_mapping": "🔄 Coming",
             "decision_support": "🔄 Coming",
-            "analytics": "🔄 Coming"
+            "analytics": "✅ Active" if CLAIMS_SERVICE_AVAILABLE else "🔄 Coming"
         },
         "documentation": "/api/docs",
         "endpoints": {
             "health": "/health",
             "api_info": "/api/v1",
             "ocr_service": "/api/v1/ocr/",
+            "claims_service": "/api/v1/claims/",
+            "dashboard": "/api/v1/dashboard/",
             "ai_pipeline": "/api/v1/ai-pipeline/"
         }
     }
@@ -142,7 +154,8 @@ async def health_check():
         "components": {
             "api_gateway": "✅ healthy",
             "ai_pipeline": "✅ available" if AI_PIPELINE_AVAILABLE else "❌ unavailable",
-            "database": "🔄 pending setup",
+            "claims_service": "✅ available" if CLAIMS_SERVICE_AVAILABLE else "❌ unavailable",
+            "database": "✅ connected" if CLAIMS_SERVICE_AVAILABLE else "❌ disconnected",
             "webgis": "🔄 pending setup",
             "file_storage": "✅ local storage ready"
         },
@@ -163,7 +176,7 @@ async def api_v1_info():
         "sih_challenge": "SIH25108 - FRA Atlas and WebGIS-based DSS",
         "services_status": {
             "ocr_processing": "✅ Active" if AI_PIPELINE_AVAILABLE else "❌ Inactive",
-            "claims_management": "🔄 Development",
+            "claims_management": "✅ Active" if CLAIMS_SERVICE_AVAILABLE else "❌ Inactive",
             "webgis_operations": "🔄 Development", 
             "asset_mapping": "🔄 Development",
             "decision_support": "🔄 Development"
@@ -172,8 +185,9 @@ async def api_v1_info():
             "ocr_process": "/api/v1/ocr/process-document",
             "ocr_forms": "/api/v1/ocr/form-types", 
             "ai_status": "/api/v1/ai-pipeline/status",
-            "claims": "/api/v1/claims (Coming)",
-            "maps": "/api/v1/maps (Coming)"
+            "claims": "/api/v1/claims",
+            "dashboard": "/api/v1/dashboard/stats",
+            "search": "/api/v1/claims/search"
         },
         "supported_features": {
             "claim_types": ["IFR", "CR", "CFR"] if AI_PIPELINE_AVAILABLE else [],
@@ -188,32 +202,14 @@ async def api_v1_info():
 @app.get("/api/v1/ai-pipeline/status")
 async def ai_pipeline_status():
     """Check AI Pipeline service status and capabilities"""
-    return {
-        "ai_pipeline_available": AI_PIPELINE_AVAILABLE,
-        "services": {
-            "ocr_service": {
-                "status": "✅ Available" if AI_PIPELINE_AVAILABLE else "❌ Unavailable",
-                "description": "LLMWhisperer-powered OCR for FRA documents",
-                "supported_forms": ["IFR", "CR", "CFR", "Legacy Claims"]
-            },
-            "asset_mapping": {
-                "status": "🔄 Development",
-                "description": "Sentinel-2 satellite imagery analysis with Random Forest ML"
-            },
-            "decision_support": {
-                "status": "🔄 Development", 
-                "description": "AI-powered government scheme recommendations"
-            }
-        },
-        "pilot_state": "Odisha",
-        "atlas_version": "1.0.0",
-        "technology_stack": {
-            "ocr": "LLMWhisperer + Custom NER",
-            "ml_models": "Random Forest, Computer Vision",
-            "satellite_data": "Sentinel-2",
-            "backend": "FastAPI + PostgreSQL + PostGIS"
+    if not AI_PIPELINE_AVAILABLE:
+        return {
+            "ai_pipeline_available": False,
+            "error": "AI Pipeline service unavailable",
+            "message": "Please check ai-pipeline setup and dependencies"
         }
-    }
+    
+    return ai_pipeline.health_check()
 
 @app.get("/api/v1/ocr/form-types")
 async def get_supported_form_types():
@@ -315,21 +311,277 @@ async def process_fra_document(
             detail=f"Document processing failed: {str(e)}"
         )
 
-# ============= PLACEHOLDER ENDPOINTS (Coming Soon) =============
+# ============= ✅ CLAIMS MANAGEMENT ENDPOINTS =============
 
 @app.get("/api/v1/claims")
-async def claims_placeholder():
-    """Claims management endpoints - Coming in database setup"""
+async def get_all_claims(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    district: Optional[str] = Query(None, description="Filter by district"),
+    full_details: bool = Query(False, description="Include complete OCR data")
+):
+    """Get all claims with optional filtering and pagination"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        if status:
+            claims = claims_service.get_claims_by_status(status, include_full_data=full_details)
+        elif district:
+            claims = claims_service.get_claims_by_district(district, include_full_data=full_details)
+        else:
+            claims = claims_service.get_all_claims(skip, limit, include_full_data=full_details)
+        
+        return {
+            "status": "success",
+            "total_claims": len(claims),
+            "claims": claims,
+            "filters_applied": {
+                "status": status,
+                "district": district,
+                "pagination": {"skip": skip, "limit": limit},
+                "full_details": full_details
+            },
+            "atlas_version": "1.0.0"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ✅ SEARCH ENDPOINT MOVED BEFORE {claim_id} ROUTE
+@app.get("/api/v1/claims/search")
+async def search_claims(
+    q: str = Query(..., min_length=2, description="Search query"),
+    full_details: bool = Query(False, description="Include complete data")
+):
+    """Search claims by claimant name, district, village, or document filename"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        claims = claims_service.search_claims(q, include_full_data=full_details)
+        return {
+            "status": "success",
+            "query": q,
+            "results_count": len(claims),
+            "claims": claims,
+            "atlas_version": "1.0.0"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/claims/{claim_id}")
+async def get_claim_by_id(
+    claim_id: int,
+    full_details: bool = Query(True, description="Include complete claim data")
+):
+    """Get specific claim by ID with complete information"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        claim = claims_service.get_claim_by_id(claim_id, include_full_data=full_details)
+        if not claim:
+            raise HTTPException(status_code=404, detail="Claim not found")
+        return {
+            "status": "success",
+            "claim": claim,
+            "atlas_version": "1.0.0"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/claims/{claim_id}/full")
+async def get_claim_full_details(claim_id: int):
+    """Get complete claim information including all OCR data and metadata"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        claim = claims_service.get_claim_by_id(claim_id, include_full_data=True)
+        if not claim:
+            raise HTTPException(status_code=404, detail="Claim not found")
+        
+        return {
+            "status": "success",
+            "claim": claim,
+            "atlas_info": {
+                "service": "Aṭavī Atlas Claims Service",
+                "version": "1.0.0",
+                "pilot_state": "Odisha",
+                "data_completeness": "Full OCR and extracted data included"
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/v1/claims/{claim_id}/status")
+async def update_claim_status(
+    claim_id: int,
+    status: str = Query(..., description="New status (Pending, Under Review, Approved, Rejected)"),
+    notes: Optional[str] = Query(None, description="Update notes")
+):
+    """Update claim status with optional notes"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        result = claims_service.update_claim_status(claim_id, status, notes or "")
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/v1/claims/{claim_id}")
+async def update_claim(claim_id: int, updates: dict):
+    """Update multiple claim fields"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        result = claims_service.update_claim(claim_id, updates)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/v1/claims/{claim_id}")
+async def delete_claim(claim_id: int):
+    """Delete a claim (use with caution)"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        result = claims_service.delete_claim(claim_id)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/v1/claims/{claim_id}/assign")
+async def assign_claim_to_officer(
+    claim_id: int,
+    officer_name: str = Query(..., description="Officer name to assign claim to")
+):
+    """Assign claim to a specific officer"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        result = claims_service.assign_claim_to_officer(claim_id, officer_name)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============= ✅ DASHBOARD & ANALYTICS ENDPOINTS =============
+
+@app.get("/api/v1/dashboard/stats")
+async def get_dashboard_stats():
+    """Get comprehensive dashboard statistics for Aṭavī Atlas"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        stats = claims_service.get_dashboard_stats()
+        return {
+            "status": "success",
+            "pilot_state": "Odisha",
+            "atlas_version": "1.0.0",
+            "generated_at": datetime.now().isoformat(),
+            "statistics": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/dashboard/recent-activity")
+async def get_recent_activity():
+    """Get recent claims activity"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        recent_claims = claims_service.get_all_claims(0, 10, include_full_data=False)  # Last 10 claims
+        return {
+            "status": "success",
+            "recent_claims": recent_claims,
+            "atlas_version": "1.0.0"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/dashboard/summary")
+async def get_system_summary():
+    """Get a quick summary of Aṭavī Atlas system status"""
+    if not CLAIMS_SERVICE_AVAILABLE:
+        return {
+            "status": "service_unavailable",
+            "message": "Claims service not available - check database connection"
+        }
+    
+    try:
+        summary = claims_service.get_claims_summary()
+        summary["services_status"] = {
+            "ai_pipeline": "✅ Available" if AI_PIPELINE_AVAILABLE else "❌ Unavailable",
+            "claims_service": "✅ Available" if CLAIMS_SERVICE_AVAILABLE else "❌ Unavailable",
+            "database": "✅ Connected" if CLAIMS_SERVICE_AVAILABLE else "❌ Disconnected"
+        }
+        return summary
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============= SYSTEM ENDPOINTS =============
+
+@app.get("/api/v1/system/info")
+async def get_system_info():
+    """Get complete system information for debugging and monitoring"""
     return {
-        "message": "🔄 Claims Management Service - Coming in Step 3",
+        "system_name": "Aṭavī Atlas",
+        "version": "1.0.0",
+        "description": "Forest Rights Act Decision Support System",
+        "pilot_state": "Odisha",
         "features": [
-            "CRUD operations for FRA claims",
-            "Search and filtering",
-            "Status workflow management", 
-            "Document attachment handling"
+            "OCR Document Processing",
+            "Claims Management", 
+            "Dashboard Analytics",
+            "Search & Filter",
+            "Status Updates",
+            "Officer Assignment"
         ],
-        "integration": "Will integrate with OCR processed data"
+        "services": {
+            "ai_pipeline": {
+                "available": AI_PIPELINE_AVAILABLE,
+                "description": "LLMWhisperer OCR processing"
+            },
+            "claims_service": {
+                "available": CLAIMS_SERVICE_AVAILABLE,
+                "description": "PostgreSQL database with full CRUD"
+            }
+        },
+        "supported_documents": ["PDF", "JPG", "PNG"],
+        "supported_forms": ["IFR", "CR", "CFR", "Legacy Claims"],
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "python_version": f"{os.sys.version}",
+        "database_url": os.getenv("DATABASE_URL", "Not configured")[:50] + "..." if os.getenv("DATABASE_URL") else "Not configured"
     }
+
+# ============= PLACEHOLDER ENDPOINTS (Coming Soon) =============
 
 @app.get("/api/v1/maps")
 async def webgis_placeholder():
@@ -344,44 +596,6 @@ async def webgis_placeholder():
         ],
         "technology": "PostgreSQL + PostGIS + Leaflet/OpenLayers"
     }
-
-@app.get("/api/v1/analytics")
-async def analytics_placeholder():
-    """Analytics and decision support endpoints"""
-    return {
-        "message": "🔄 Analytics & Decision Support - Coming soon",
-        "features": [
-            "FRA implementation dashboard",
-            "Claim processing statistics",
-            "Government scheme recommendations", 
-            "State-wise performance metrics"
-        ],
-        "focus": "Odisha pilot analytics"
-    }
-
-# ============= DEVELOPMENT HELPERS =============
-
-@app.get("/api/v1/system/info")
-async def system_info():
-    """System information for development and debugging"""
-    return {
-        "atlas_version": "1.0.0",
-        "python_version": f"{os.sys.version}",
-        "environment": os.getenv("ENVIRONMENT", "development"),
-        "ai_pipeline_available": AI_PIPELINE_AVAILABLE,
-        "database_url": os.getenv("DATABASE_URL", "Not configured"),
-        "pilot_state": "Odisha",
-        "upload_dir": os.getenv("UPLOAD_DIR", "uploads/"),
-        "max_file_size": "50MB"
-    }
-
-# ============= MAIN ROUTER INCLUDES (Coming) =============
-
-# When we create route files, we'll uncomment these:
-# app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
-# app.include_router(claims.router, prefix="/api/v1/claims", tags=["Claims Management"]) 
-# app.include_router(documents.router, prefix="/api/v1/documents", tags=["Document Processing"])
-# app.include_router(maps.router, prefix="/api/v1/maps", tags=["WebGIS & Mapping"])
 
 if __name__ == "__main__":
     # Production: Remove reload for better performance
