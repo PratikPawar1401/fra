@@ -99,7 +99,7 @@ const StructuredUpload = () => {
     }
   };
 
-  // ✅ Updated OCR processing with Atlas backend
+  //  Updated OCR processing with Atlas backend
   const processFormWithOCR = async () => {
     if (!mainFormFile) return;
     
@@ -109,9 +109,9 @@ const StructuredUpload = () => {
       formDataObj.append('file', mainFormFile);
       formDataObj.append('form_type', claimType);
 
-      console.log('🚀 Processing document with Atlas backend...');
+      console.log(' Processing document with Atlas backend...');
       
-      // ✅ Atlas backend endpoint
+      //  Atlas backend endpoint
       const response = await fetch('http://127.0.0.1:8000/api/v1/ocr/process-document', {
         method: 'POST',
         body: formDataObj,
@@ -124,7 +124,7 @@ const StructuredUpload = () => {
       const result = await response.json();
       
       if (result.success) {
-        // ✅ Use Atlas response structure
+        //  Use Atlas response structure
         const extractedData = result.atlas_claim_data?.extracted_data || {};
         setExtractedFields(extractedData);
         setFormData(extractedData);
@@ -171,11 +171,11 @@ const StructuredUpload = () => {
     setSupportingDocuments(prev => prev.filter(doc => doc.id !== docId));
   };
 
-  // ✅ Simplified submit function - Atlas backend handles storage
+  //  Simplified submit function - Atlas backend handles storage
   const submitClaim = async () => {
     setIsSubmitting(true);
     try {
-      // ✅ Your backend already saved the main form during OCR processing
+      //  Your backend already saved the main form during OCR processing
       const claimData = {
         claimant_name: formData.FullName || formData.HolderNames || '',
         district: formData.District || '',
@@ -193,13 +193,13 @@ const StructuredUpload = () => {
       // Show success message with Atlas details
       const successMessage = `🎉 Claim processed successfully through Aṭavī Atlas!
       
-✅ OCR Processing: Complete
-✅ Database Storage: Complete  
+ OCR Processing: Complete
+ Database Storage: Complete  
 ${processingResult?.database_info?.claim_id ? `✅ Database ID: ${processingResult.database_info.claim_id}` : ''}
-✅ Form Type: ${claimTypes[claimType].name} - ${formSubtype}
-✅ Claimant: ${claimData.claimant_name}
-✅ District: ${claimData.district}
-✅ State: Odisha (Pilot)
+ Form Type: ${claimTypes[claimType].name} - ${formSubtype}
+ Claimant: ${claimData.claimant_name}
+ District: ${claimData.district}
+ State: Odisha (Pilot)
       
 Your claim has been automatically saved to the Atlas database and is ready for review.`;
 
@@ -227,7 +227,7 @@ Your claim has been automatically saved to the Atlas database and is ready for r
     setProcessingResult(null);
   };
 
-  // ✅ Backend status indicator
+  //  Backend status indicator
   const renderBackendStatus = () => (
     <div className={`mb-4 p-3 rounded-lg text-sm ${
       backendStatus === 'online' 
@@ -406,7 +406,7 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           disabled={!mainFormFile || isProcessing || backendStatus !== 'online'}
           className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
-          {isProcessing ? '🔄 Processing with Atlas OCR...' : '🚀 Process Form'}
+          {isProcessing ? ' Processing with Atlas OCR...' : ' Process Form'}
         </button>
       </div>
     </div>
@@ -422,11 +422,11 @@ Your claim has been automatically saved to the Atlas database and is ready for r
         <h2 className="text-xl font-semibold text-gray-800 mb-4">Verify Extracted Information</h2>
         <p className="text-gray-600 mb-4">Please review and correct the information extracted by Atlas OCR:</p>
 
-        {/* ✅ Show processing success info */}
+        {/*  Show processing success info */}
         {processingResult?.database_info?.saved && (
           <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
             <p className="text-sm text-green-700">
-              ✅ <strong>Successfully processed by Aṭavī Atlas!</strong><br/>
+               <strong>Successfully processed by Aṭavī Atlas!</strong><br/>
               Database ID: {processingResult.database_info.claim_id} | 
               Form Type: {processingResult.atlas_claim_data.form_subtype || formSubtype}
             </p>
@@ -538,7 +538,7 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           <p className="text-sm text-gray-600">{mainFormFile?.name}</p>
           {processingResult?.database_info?.saved && (
             <p className="text-xs text-green-600 mt-1">
-              ✅ Already saved to Atlas database (ID: {processingResult.database_info.claim_id})
+               Already saved to Atlas database (ID: {processingResult.database_info.claim_id})
             </p>
           )}
         </div>
@@ -557,10 +557,10 @@ Your claim has been automatically saved to the Atlas database and is ready for r
         <div className="p-4 bg-green-50 rounded-lg border border-green-200">
           <h3 className="font-medium text-green-800">🌳 Aṭavī Atlas Processing Summary</h3>
           <ul className="text-sm text-green-700 mt-2 space-y-1">
-            <li>✅ OCR processing completed</li>
-            <li>✅ Data extracted and verified</li>
-            <li>✅ Stored in Atlas database</li>
-            <li>✅ Ready for government review</li>
+            <li> OCR processing completed</li>
+            <li> Data extracted and verified</li>
+            <li> Stored in Atlas database</li>
+            <li> Ready for government review</li>
           </ul>
         </div>
       </div>
@@ -577,7 +577,7 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           disabled={isSubmitting}
           className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
-          {isSubmitting ? 'Finalizing...' : '🎉 Complete Submission'}
+          {isSubmitting ? 'Finalizing...' : ' Complete Submission'}
         </button>
       </div>
     </div>
@@ -592,7 +592,7 @@ Your claim has been automatically saved to the Atlas database and is ready for r
         </p>
       </div>
 
-      {/* ✅ Backend status indicator */}
+      {/*  Backend status indicator */}
       {renderBackendStatus()}
 
       {renderStepIndicator()}
