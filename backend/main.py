@@ -1,9 +1,27 @@
+"""
+🌳 Aṭavī Atlas - Forest Rights Act Decision Support System
+Complete API Gateway with OCR, Claims Management, and WebGIS Integration
+
+Features:
+- AI-powered OCR document processing
+- Complete FRA claims CRUD operations  
+- PostGIS spatial data management
+- Google Earth Engine satellite analysis
+- Real-time dashboard analytics
+- Search and filtering capabilities
+
+Version: 1.0.0
+Pilot State: Odisha
+SIH 2025 - Team EdgeViz
+"""
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
 import os
+import json
 from datetime import datetime
 from typing import Optional
 from dotenv import load_dotenv
@@ -13,10 +31,13 @@ from dotenv import load_dotenv
 # from config.database import engine
 # from models import Base
 
+# ============= SERVICE INTEGRATIONS =============
+
 # AI Pipeline integration
 try:
     from services.ai_pipeline import ai_pipeline
     AI_PIPELINE_AVAILABLE = True
+    print("✅ AI Pipeline service loaded successfully")
 except ImportError:
     AI_PIPELINE_AVAILABLE = False
     print("⚠️  AI Pipeline not available - install dependencies or check ai-pipeline setup")
@@ -30,7 +51,18 @@ except ImportError:
     CLAIMS_SERVICE_AVAILABLE = False
     print("⚠️  Claims service not available - check database setup")
 
+# ✅ WebGIS service integration
+try:
+    from services.webgis_service import webgis_service
+    WEBGIS_AVAILABLE = True
+    print("✅ WebGIS service loaded successfully")
+except ImportError as e:
+    WEBGIS_AVAILABLE = False
+    print(f"⚠️ WebGIS service not available: {e}")
+
 load_dotenv()
+
+# ============= FASTAPI APP SETUP =============
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,7 +71,8 @@ async def lifespan(app: FastAPI):
     print(f"🎯 Pilot State: Odisha")
     print(f"📡 AI Pipeline: {'✅ Available' if AI_PIPELINE_AVAILABLE else '❌ Unavailable'}")
     print(f"🗃️  Claims Service: {'✅ Available' if CLAIMS_SERVICE_AVAILABLE else '❌ Unavailable'}")
-    print(f"📊 WebGIS: PostGIS Integration (Coming)")
+    print(f"🗺️  WebGIS Service: {'✅ Available' if WEBGIS_AVAILABLE else '❌ Unavailable'}")
+    print(f"📊 PostGIS Integration: {'✅ Active' if WEBGIS_AVAILABLE else '🔄 Coming'}")
     print("✅ Aṭavī Atlas API Gateway Online!")
     
     # Database table creation (when database is setup)
@@ -59,9 +92,9 @@ app = FastAPI(
     **Core Services:**
     - 📄 **Document Processing**: OCR + NER for FRA forms (IFR, CR, CFR)
     - 🗂️  **Claims Management**: Digital library for forest rights claims
-    - 🛰️  **Asset Mapping**: Satellite imagery analysis with ML/CV
+    - 🛰️  **Satellite Analysis**: Google Earth Engine + PostGIS integration
+    - 🗺️  **WebGIS**: Interactive mapping with spatial analytics
     - 🧠 **Decision Support**: AI-powered government scheme recommendations
-    - 🗺️  **WebGIS**: Interactive mapping with PostGIS
     - 📊 **Analytics**: Real-time dashboard and reporting
     
     **Target States**: Odisha (Pilot), Madhya Pradesh, Tripura, Telangana
@@ -126,9 +159,9 @@ async def root():
         "services": {
             "claims_management": "✅ Active" if CLAIMS_SERVICE_AVAILABLE else "❌ Unavailable",
             "document_ocr": "✅ Active" if AI_PIPELINE_AVAILABLE else "❌ Unavailable", 
-            "webgis": "🔄 Coming",
-            "asset_mapping": "🔄 Coming",
-            "decision_support": "🔄 Coming",
+            "webgis": "✅ Active" if WEBGIS_AVAILABLE else "❌ Unavailable",
+            "satellite_analysis": "✅ Active" if WEBGIS_AVAILABLE else "❌ Unavailable",
+            "spatial_database": "✅ PostGIS" if WEBGIS_AVAILABLE else "🔄 Coming",
             "analytics": "✅ Active" if CLAIMS_SERVICE_AVAILABLE else "🔄 Coming"
         },
         "documentation": "/api/docs",
@@ -137,6 +170,7 @@ async def root():
             "api_info": "/api/v1",
             "ocr_service": "/api/v1/ocr/",
             "claims_service": "/api/v1/claims/",
+            "webgis_service": "/api/v1/webgis/",
             "dashboard": "/api/v1/dashboard/",
             "ai_pipeline": "/api/v1/ai-pipeline/"
         }
@@ -155,8 +189,10 @@ async def health_check():
             "api_gateway": "✅ healthy",
             "ai_pipeline": "✅ available" if AI_PIPELINE_AVAILABLE else "❌ unavailable",
             "claims_service": "✅ available" if CLAIMS_SERVICE_AVAILABLE else "❌ unavailable",
+            "webgis_service": "✅ available" if WEBGIS_AVAILABLE else "❌ unavailable",
             "database": "✅ connected" if CLAIMS_SERVICE_AVAILABLE else "❌ disconnected",
-            "webgis": "🔄 pending setup",
+            "postgis": "✅ spatial support" if WEBGIS_AVAILABLE else "❌ unavailable",
+            "google_earth_engine": "✅ connected" if WEBGIS_AVAILABLE else "❌ unavailable",
             "file_storage": "✅ local storage ready"
         },
         "uptime": "active",
@@ -177,21 +213,25 @@ async def api_v1_info():
         "services_status": {
             "ocr_processing": "✅ Active" if AI_PIPELINE_AVAILABLE else "❌ Inactive",
             "claims_management": "✅ Active" if CLAIMS_SERVICE_AVAILABLE else "❌ Inactive",
-            "webgis_operations": "🔄 Development", 
-            "asset_mapping": "🔄 Development",
-            "decision_support": "🔄 Development"
+            "webgis_operations": "✅ Active" if WEBGIS_AVAILABLE else "❌ Inactive", 
+            "satellite_analysis": "✅ Active" if WEBGIS_AVAILABLE else "❌ Inactive",
+            "spatial_analytics": "✅ PostGIS" if WEBGIS_AVAILABLE else "🔄 Development"
         },
         "available_endpoints": {
             "ocr_process": "/api/v1/ocr/process-document",
             "ocr_forms": "/api/v1/ocr/form-types", 
             "ai_status": "/api/v1/ai-pipeline/status",
             "claims": "/api/v1/claims",
+            "webgis_analyze": "/api/v1/webgis/analyze-for-claim",
+            "webgis_status": "/api/v1/webgis/status",
             "dashboard": "/api/v1/dashboard/stats",
             "search": "/api/v1/claims/search"
         },
         "supported_features": {
             "claim_types": ["IFR", "CR", "CFR"] if AI_PIPELINE_AVAILABLE else [],
             "document_formats": ["PDF", "JPG", "PNG"],
+            "spatial_formats": ["GeoJSON"] if WEBGIS_AVAILABLE else [],
+            "satellite_data": ["Sentinel-2", "Landsat-8"] if WEBGIS_AVAILABLE else [],
             "states": ["Odisha (Pilot)", "Madhya Pradesh", "Tripura", "Telangana"],
             "languages": ["English", "Hindi", "Odia"]
         }
@@ -490,6 +530,236 @@ async def assign_claim_to_officer(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ============= 🗺️ WEBGIS & SATELLITE ANALYSIS ENDPOINTS =============
+
+@app.get("/api/v1/webgis/status")
+async def webgis_status():
+    """Check WebGIS service status and capabilities"""
+    return {
+        "webgis_available": WEBGIS_AVAILABLE,
+        "services": {
+            "satellite_analysis": {
+                "status": "✅ Available" if WEBGIS_AVAILABLE else "❌ Unavailable",
+                "description": "Google Earth Engine + Sentinel-2 imagery analysis"
+            },
+            "land_classification": {
+                "status": "✅ Available" if WEBGIS_AVAILABLE else "❌ Unavailable",
+                "description": "Random Forest ML model for land use classification"
+            },
+            "spatial_database": {
+                "status": "✅ PostGIS" if WEBGIS_AVAILABLE else "❌ Unavailable",
+                "description": "PostGIS geometry storage for spatial data"
+            },
+            "claim_association": {
+                "status": "✅ Available" if WEBGIS_AVAILABLE and CLAIMS_SERVICE_AVAILABLE else "❌ Unavailable",
+                "description": "Link GIS analysis results to FRA claims"
+            }
+        },
+        "supported_formats": ["GeoJSON"],
+        "classification_classes": ["Forest", "Shrub & Grassland", "Agriculture", "Urban & Barren Land", "Water & Wetland"] if WEBGIS_AVAILABLE else [],
+        "satellite_data": "Sentinel-2 (2022)",
+        "spatial_reference": "WGS84 (EPSG:4326)",
+        "atlas_version": "1.0.0"
+    }
+
+@app.post("/api/v1/webgis/analyze-aoi")
+async def analyze_area_of_interest(file: UploadFile = File(...)):
+    """
+    🛰️ **Satellite-based Land Classification Analysis**
+    
+    Upload a GeoJSON file to get:
+    - Land use classification (Forest, Agriculture, Urban, etc.)
+    - Area calculations in hectares
+    - Forest coverage percentage
+    - Satellite imagery visualization
+    
+    Uses Google Earth Engine + Sentinel-2 data + Random Forest ML
+    """
+    if not WEBGIS_AVAILABLE:
+        raise HTTPException(
+            status_code=503, 
+            detail="WebGIS service unavailable. Please check Google Earth Engine setup."
+        )
+    
+    # Validate file
+    if not file.filename.endswith('.geojson'):
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid file type. Please upload a GeoJSON file."
+        )
+    
+    try:
+        # Read and parse GeoJSON
+        content = await file.read()
+        geojson_data = json.loads(content)
+        
+        # Process with WebGIS service (without claim association)
+        results = webgis_service._process_with_gee(geojson_data)
+        
+        # Enhance with Atlas metadata
+        results["atlas_info"] = {
+            "service": "Aṭavī Atlas WebGIS Analysis",
+            "version": "1.0.0",
+            "pilot_state": "Odisha",
+            "endpoint": "/api/v1/webgis/analyze-aoi",
+            "file_processed": file.filename,
+            "storage_note": "Standalone analysis - not associated with any claim"
+        }
+        
+        return {
+            "success": True,
+            **results,
+            "processing_info": {
+                "processed_at": datetime.now().isoformat(),
+                "atlas_version": "1.0.0",
+                "storage_architecture": "Standalone analysis"
+            }
+        }
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid GeoJSON format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+@app.post("/api/v1/webgis/analyze-for-claim/{claim_id}")
+async def analyze_claim_boundary(
+    claim_id: int, 
+    file: UploadFile = File(..., description="GeoJSON file for claim boundary")
+):
+    """
+    🗺️ **Complete WebGIS Analysis with Proper Storage**
+    
+    INPUT: GeoJSON → PostGIS geometry storage
+    PROCESSING: Google Earth Engine analysis  
+    OUTPUT: Analytics → PostgreSQL tables
+    """
+    if not WEBGIS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="WebGIS service unavailable")
+    
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    # Validate claim exists
+    claim = claims_service.get_claim_by_id(claim_id, include_full_data=False)
+    if not claim:
+        raise HTTPException(status_code=404, detail=f"Claim {claim_id} not found")
+    
+    # Validate file
+    if not file.filename.endswith('.geojson'):
+        raise HTTPException(status_code=400, detail="Please upload a GeoJSON file")
+    
+    try:
+        content = await file.read()
+        geojson_data = json.loads(content)
+        
+        # ✅ Complete workflow: PostGIS input + PostgreSQL output
+        results = webgis_service.analyze_geojson_for_claim(geojson_data, claim_id)
+        
+        results["claim_info"] = {
+            "claim_id": claim_id,
+            "claimant_name": claim.get("claimant_name"),
+            "district": claim.get("district"),
+            "form_type": claim.get("form_type")
+        }
+        
+        return results
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid GeoJSON format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/webgis/claim/{claim_id}/complete-data")
+async def get_complete_webgis_data(claim_id: int):
+    """
+    📊 **Get Complete WebGIS Data**
+    
+    Returns:
+    - INPUT: Claim boundary from PostGIS
+    - OUTPUT: Analysis results from PostgreSQL
+    """
+    if not WEBGIS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="WebGIS service unavailable")
+    
+    try:
+        complete_data = webgis_service.get_claim_webgis_data(claim_id)
+        
+        complete_data["atlas_info"] = {
+            "service": "Aṭavī Atlas Complete WebGIS Data",
+            "version": "1.0.0",
+            "storage_architecture": "PostGIS (input) + PostgreSQL (output)"
+        }
+        
+        return complete_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/webgis/claim/{claim_id}/boundary")
+async def get_claim_boundary(claim_id: int):
+    """
+    🗺️ **Get Claim Boundary from PostGIS**
+    
+    Returns the original INPUT GeoJSON stored in PostGIS geometry column
+    """
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        boundary_data = claims_service.get_claim_boundary_geojson(claim_id)
+        
+        if boundary_data["success"]:
+            return {
+                "claim_id": claim_id,
+                "boundary_geojson": boundary_data["geojson"],
+                "source": "PostGIS geometry column",
+                "atlas_version": "1.0.0"
+            }
+        else:
+            raise HTTPException(status_code=404, detail="No boundary data found for this claim")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/webgis/claims/spatial-search")
+async def spatial_search_claims(
+    latitude: float = Query(..., description="Latitude coordinate"),
+    longitude: float = Query(..., description="Longitude coordinate"),
+    distance_km: float = Query(..., ge=0.1, le=100, description="Search radius in kilometers")
+):
+    """
+    🗺️ **Spatial Search using PostGIS**
+    
+    Find claims within specified distance from a point using PostGIS spatial operations
+    """
+    if not CLAIMS_SERVICE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Claims service unavailable")
+    
+    try:
+        claims = claims_service.get_claims_within_distance(latitude, longitude, distance_km)
+        
+        return {
+            "status": "success",
+            "search_parameters": {
+                "center_point": {"latitude": latitude, "longitude": longitude},
+                "search_radius_km": distance_km
+            },
+            "results_count": len(claims),
+            "claims": claims,
+            "spatial_operation": "PostGIS ST_DWithin",
+            "atlas_version": "1.0.0"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============= ✅ DASHBOARD & ANALYTICS ENDPOINTS =============
 
 @app.get("/api/v1/dashboard/stats")
@@ -540,7 +810,9 @@ async def get_system_summary():
         summary["services_status"] = {
             "ai_pipeline": "✅ Available" if AI_PIPELINE_AVAILABLE else "❌ Unavailable",
             "claims_service": "✅ Available" if CLAIMS_SERVICE_AVAILABLE else "❌ Unavailable",
-            "database": "✅ Connected" if CLAIMS_SERVICE_AVAILABLE else "❌ Disconnected"
+            "webgis_service": "✅ Available" if WEBGIS_AVAILABLE else "❌ Unavailable",
+            "database": "✅ Connected" if CLAIMS_SERVICE_AVAILABLE else "❌ Disconnected",
+            "postgis": "✅ Spatial Support" if WEBGIS_AVAILABLE else "❌ Unavailable"
         }
         return summary
     except Exception as e:
@@ -562,7 +834,11 @@ async def get_system_info():
             "Dashboard Analytics",
             "Search & Filter",
             "Status Updates",
-            "Officer Assignment"
+            "Officer Assignment",
+            "Satellite Land Analysis",
+            "WebGIS Integration",
+            "PostGIS Spatial Database",
+            "Google Earth Engine"
         ],
         "services": {
             "ai_pipeline": {
@@ -572,30 +848,118 @@ async def get_system_info():
             "claims_service": {
                 "available": CLAIMS_SERVICE_AVAILABLE,
                 "description": "PostgreSQL database with full CRUD"
+            },
+            "webgis_service": {
+                "available": WEBGIS_AVAILABLE,
+                "description": "Google Earth Engine satellite analysis + PostGIS spatial storage"
             }
         },
         "supported_documents": ["PDF", "JPG", "PNG"],
+        "supported_gis_formats": ["GeoJSON"],
         "supported_forms": ["IFR", "CR", "CFR", "Legacy Claims"],
+        "database_features": [
+            "PostgreSQL for structured data",
+            "PostGIS for spatial geometry",
+            "JSON columns for flexible data",
+            "Spatial indexing and queries"
+        ],
+        "satellite_capabilities": [
+            "Sentinel-2 imagery analysis",
+            "Land use classification",
+            "Random Forest ML model",
+            "Multi-temporal analysis"
+        ],
         "environment": os.getenv("ENVIRONMENT", "development"),
         "python_version": f"{os.sys.version}",
         "database_url": os.getenv("DATABASE_URL", "Not configured")[:50] + "..." if os.getenv("DATABASE_URL") else "Not configured"
     }
 
-# ============= PLACEHOLDER ENDPOINTS (Coming Soon) =============
+# ============= PLACEHOLDER ENDPOINTS (Future Development) =============
 
-@app.get("/api/v1/maps")
-async def webgis_placeholder():
-    """WebGIS and mapping endpoints - Coming soon"""
+@app.get("/api/v1/decision-support")
+async def decision_support_placeholder():
+    """AI-powered decision support endpoints - Future development"""
     return {
-        "message": "🔄 WebGIS Service - Coming in Step 4", 
+        "message": "🧠 Decision Support System - Future Development", 
         "features": [
-            "Interactive mapping with PostGIS",
-            "Land boundary visualization",
-            "Satellite imagery overlay",
-            "Geospatial analysis tools"
+            "AI-powered scheme recommendations",
+            "Risk assessment for claims",
+            "Policy compliance checking",
+            "Automated claim routing"
         ],
-        "technology": "PostgreSQL + PostGIS + Leaflet/OpenLayers"
+        "technology": "Machine Learning + Rule Engine",
+        "status": "🔄 Planned for Phase 2"
     }
+
+@app.get("/api/v1/mobile")
+async def mobile_api_placeholder():
+    """Mobile app integration endpoints - Future development"""
+    return {
+        "message": "📱 Mobile API - Future Development",
+        "features": [
+            "Field data collection",
+            "Offline claim submission",
+            "GPS boundary capture",
+            "Photo documentation"
+        ],
+        "platforms": ["Android", "iOS"],
+        "status": "🔄 Planned for Phase 2"
+    }
+
+# Add WebGIS endpoints after your existing endpoints
+
+@app.get("/api/v1/webgis/status")
+async def webgis_status():
+    """Check WebGIS service status"""
+    return {
+        "status": "active",
+        "service": "WebGIS",
+        "google_earth_engine": True,
+        "atlas_version": "1.0.0"
+    }
+
+@app.post("/api/v1/webgis/analyze-for-claim/{claim_id}")
+async def analyze_claim_boundary(
+    claim_id: int, 
+    file: UploadFile = File(..., description="GeoJSON file for claim boundary")
+):
+    """Analyze GeoJSON boundary for specific claim"""
+    
+    if not file.filename.endswith('.geojson'):
+        raise HTTPException(status_code=400, detail="Please upload a GeoJSON file")
+    
+    try:
+        content = await file.read()
+        geojson_data = json.loads(content)
+        
+        # Import webgis service
+        from services.webgis_service import webgis_service
+        
+        # Process with WebGIS service
+        results = webgis_service.analyze_geojson_for_claim(geojson_data, claim_id)
+        
+        return {
+            "status": "success",
+            "message": f"GeoJSON analysis completed for claim {claim_id}",
+            "results": results
+        }
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid GeoJSON file")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+@app.get("/api/v1/webgis/claim/{claim_id}/complete-data")
+async def get_claim_webgis_data(claim_id: int):
+    """Get complete WebGIS data for a claim"""
+    try:
+        from services.webgis_service import webgis_service
+        data = webgis_service.get_claim_webgis_data(claim_id)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============= MAIN APPLICATION STARTUP =============
 
 if __name__ == "__main__":
     # Production: Remove reload for better performance
