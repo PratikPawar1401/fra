@@ -20,18 +20,25 @@ export const MapProvider = ({ children }) => {
   const [selectedState, setSelectedState] = useState(null);
   const [selectedDistrict, setSelectedDistrict] = useState(null);
   const [selectedSubdistrict, setSelectedSubdistrict] = useState(null);
+  const [selectedVillage, setSelectedVillage] = useState(null);
   const [boundaryLayers, setBoundaryLayers] = useState({ 
     states: null, 
     districts: null, 
-    subdistricts: null 
+    subdistricts: null,
+    villages: null
   });
   const [geoJsonData, setGeoJsonData] = useState({ 
     states: null, 
     districts: {},
-    subdistricts: {} // Structure: { "STATE_NAME": { "DISTRICT_NAME": data } }
+    subdistricts: {}, // Structure: { "STATE_NAME": { "DISTRICT_NAME": data } }
+    villages: {}
   });
   const [loadingBoundaries, setLoadingBoundaries] = useState(false);
   const [boundariesEnabled, setBoundariesEnabled] = useState(false);
+  const [villageDataAvailable, setVillageDataAvailable] = useState({
+    ODISHA: true, // Only Odisha has local village data
+    // Add other states as false by default
+  });
 
   // Add drawing-related state
   const [drawnLayers, setDrawnLayers] = useState([]);
@@ -57,6 +64,13 @@ export const MapProvider = ({ children }) => {
     setDrawnLayers([]);
   }, []);
 
+  // Check if village data is available for a state
+  const isVillageDataAvailable = useCallback((stateName) => {
+    if (!stateName) return false;
+    const normalizedState = stateName.toUpperCase().replace(/ /g, '_').replace(/[^A-Z0-9_]/g, '');
+    return villageDataAvailable[normalizedState] || false;
+  }, [villageDataAvailable]);
+
   const resetToIndia = useCallback(() => {
     console.log('🏠 Reset to India called');
     console.log('🗺️ Current mapInstance:', !!mapInstance);
@@ -64,7 +78,8 @@ export const MapProvider = ({ children }) => {
     console.log('🗺️ Current boundaryLayers:', {
       hasStates: !!boundaryLayers.states,
       hasDistricts: !!boundaryLayers.districts,
-      hasSubdistricts: !!boundaryLayers.subdistricts
+      hasSubdistricts: !!boundaryLayers.subdistricts,
+      hasVillages: !!boundaryLayers.villages
     });
     
     // Always reset state-related variables first
@@ -73,6 +88,7 @@ export const MapProvider = ({ children }) => {
     setSelectedState(null);
     setSelectedDistrict(null);
     setSelectedSubdistrict(null);
+    setSelectedVillage(null);
     setFilters({ 
       state: '', 
       district: '', 
@@ -95,30 +111,23 @@ export const MapProvider = ({ children }) => {
       }
     }
     
-    if (boundaryLayers.districts) {
-      console.log('❌ Removing districts layer');
-      try {
-        if (mapInstance) {
-          mapInstance.removeLayer(boundaryLayers.districts);
+    // Remove ALL boundary layers (both navigation and search)
+    const layersToRemove = ['states', 'districts', 'subdistricts', 'villages'];
+    layersToRemove.forEach(layerType => {
+      if (boundaryLayers[layerType]) {
+        console.log(`❌ Removing ${layerType} layer`);
+        try {
+          if (mapInstance) {
+            mapInstance.removeLayer(boundaryLayers[layerType]);
+          }
+        } catch (error) {
+          console.error(`Error removing ${layerType} layer:`, error);
         }
-      } catch (error) {
-        console.error('Error removing districts layer:', error);
       }
-    }
-
-    if (boundaryLayers.subdistricts) {
-      console.log('❌ Removing subdistricts layer');
-      try {
-        if (mapInstance) {
-          mapInstance.removeLayer(boundaryLayers.subdistricts);
-        }
-      } catch (error) {
-        console.error('Error removing subdistricts layer:', error);
-      }
-    }
+    });
     
     // Clear all boundary layer references
-    setBoundaryLayers({ states: null, districts: null, subdistricts: null });
+    setBoundaryLayers({ states: null, districts: null, subdistricts: null, villages: null });
     
     // Always zoom to India view (force zoom even if already at level 5)
     if (mapInstance) {
@@ -150,34 +159,22 @@ export const MapProvider = ({ children }) => {
       setSelectedState(null);
       setSelectedDistrict(null);
       setSelectedSubdistrict(null);
+      setSelectedVillage(null);
       
       // Clear any existing layers (including search results)
-      if (boundaryLayers.states && mapInstance) {
-        try {
-          mapInstance.removeLayer(boundaryLayers.states);
-        } catch (error) {
-          console.error('Error removing states layer:', error);
+      const layersToRemove = ['states', 'districts', 'subdistricts', 'villages'];
+      layersToRemove.forEach(layerType => {
+        if (boundaryLayers[layerType] && mapInstance) {
+          try {
+            mapInstance.removeLayer(boundaryLayers[layerType]);
+          } catch (error) {
+            console.error(`Error removing ${layerType} layer:`, error);
+          }
         }
-      }
-      
-      if (boundaryLayers.districts && mapInstance) {
-        try {
-          mapInstance.removeLayer(boundaryLayers.districts);
-        } catch (error) {
-          console.error('Error removing districts layer:', error);
-        }
-      }
+      });
 
-      if (boundaryLayers.subdistricts && mapInstance) {
-        try {
-          mapInstance.removeLayer(boundaryLayers.subdistricts);
-        } catch (error) {
-          console.error('Error removing subdistricts layer:', error);
-        }
-      }
-      
-      setBoundaryLayers({ states: null, districts: null, subdistricts: null });
-      
+      setBoundaryLayers({ states: null, districts: null, subdistricts: null, villages: null });
+
     } else {
       console.log('✅ Boundaries turned ON: MapContainer will add states layer if not in search mode');
     }
@@ -204,6 +201,8 @@ export const MapProvider = ({ children }) => {
         setSelectedDistrict,
         selectedSubdistrict,
         setSelectedSubdistrict,
+        selectedVillage,
+        setSelectedVillage,
         boundaryLayers,
         setBoundaryLayers,
         geoJsonData,
@@ -214,6 +213,9 @@ export const MapProvider = ({ children }) => {
         setBoundariesEnabled,
         toggleBoundaries,
         resetToIndia,
+        villageDataAvailable,
+        setVillageDataAvailable,
+        isVillageDataAvailable,
         // Drawing-related context values
         drawnLayers,
         setDrawnLayers,

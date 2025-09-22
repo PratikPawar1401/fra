@@ -6,10 +6,13 @@ const SearchControl = () => {
   const [selectedState, setSelectedState] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('');
   const [selectedSubdistrict, setSelectedSubdistrict] = useState('');
+  const [selectedVillage, setSelectedVillage] = useState('');
   const [availableDistricts, setAvailableDistricts] = useState([]);
   const [availableSubdistricts, setAvailableSubdistricts] = useState([]);
+  const [availableVillages, setAvailableVillages] = useState([]);
   const [isLoadingDistricts, setIsLoadingDistricts] = useState(false);
   const [isLoadingSubdistricts, setIsLoadingSubdistricts] = useState(false);
+  const [isLoadingVillages, setIsLoadingVillages] = useState(false);
   const searchRef = useRef(null);
   
   const { 
@@ -22,8 +25,10 @@ const SearchControl = () => {
     setSelectedState: setContextSelectedState,
     setSelectedDistrict: setContextSelectedDistrict,
     setSelectedSubdistrict: setContextSelectedSubdistrict,
+    setSelectedVillage: setContextSelectedVillage,
     boundariesEnabled,
-    setBoundariesEnabled
+    setBoundariesEnabled,
+    isVillageDataAvailable
   } = useContext(MapContext);
 
   // Indian states list
@@ -82,6 +87,7 @@ const SearchControl = () => {
     if (!stateName) {
       setAvailableDistricts([]);
       setAvailableSubdistricts([]);
+      setAvailableVillages([]);
       return;
     }
 
@@ -145,6 +151,7 @@ const SearchControl = () => {
   const loadSubdistricts = async (stateName, districtName) => {
     if (!stateName || !districtName) {
       setAvailableSubdistricts([]);
+      setAvailableVillages([]);
       return;
     }
 
@@ -214,13 +221,126 @@ const SearchControl = () => {
     }
   };
 
+  // Load villages for selected subdistrict
+  const loadVillages = async (stateName, districtName, subdistrictName) => {
+    if (!stateName || !districtName || !subdistrictName) {
+      setAvailableVillages([]);
+      return;
+    }
+
+    // Check if village data is available for this state
+    if (!isVillageDataAvailable(stateName)) {
+      console.warn(`Village data not available for ${stateName}`);
+      setAvailableVillages([]);
+      return;
+    }
+
+    const normalizedState = normalizeStateName(stateName);
+    
+    // Check if we already have village data for the state
+    if (geoJsonData.villages[normalizedState]) {
+      const villages = geoJsonData.villages[normalizedState].features
+        .filter(feature => {
+          const featureSubdistrictName = feature.properties.SUB_DIST || 
+                                        feature.properties.subdistrict_name || 
+                                        feature.properties.tehsil;
+          const featureDistrictName = feature.properties.DISTRICT || 
+                                    feature.properties.district_name;
+          
+          const subdistrictMatch = featureSubdistrictName && 
+                                 featureSubdistrictName.toLowerCase().trim() === subdistrictName.toLowerCase().trim();
+          const districtMatch = !featureDistrictName || 
+                               featureDistrictName.toLowerCase().trim() === districtName.toLowerCase().trim();
+          
+          return subdistrictMatch && districtMatch;
+        })
+        .map(feature => feature.properties.NAME || 
+                       feature.properties.vname || 
+                       feature.properties.name)
+        .filter(Boolean)
+        .sort();
+      
+      setAvailableVillages(villages);
+      return;
+    }
+
+    setIsLoadingVillages(true);
+    try {
+      let url;
+      
+      // For Odisha, load from public directory
+      if (normalizedState === 'ODISHA') {
+        url = '/data/odisha_villages.geojson';
+        console.log(`Loading villages for ${stateName} from: ${url}`);
+      } else {
+        // For other states, try to fetch from remote source (will likely fail)
+        const folderName = getStateFolderName(stateName);
+        const encodedFolderName = encodeURIComponent(folderName);
+        const fileName = `${folderName}_VILLAGES`;
+        const encodedFileName = encodeURIComponent(fileName);
+        url = `https://raw.githubusercontent.com/datta07/INDIAN-SHAPEFILES/master/STATES/${encodedFolderName}/${encodedFileName}.geojson`;
+        console.log(`Attempting to fetch villages for ${stateName}: ${url}`);
+      }
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - Village file not found for ${stateName}`);
+      }
+      
+      const data = await response.json();
+      if (data.type !== 'FeatureCollection') {
+        throw new Error('Invalid GeoJSON format');
+      }
+      
+      console.log(`Villages for ${stateName} loaded successfully. Found ${data.features.length} villages.`);
+      
+      // Update context with village data
+      setGeoJsonData(prev => ({
+        ...prev,
+        villages: { ...prev.villages, [normalizedState]: data },
+      }));
+      
+      // Extract village names for the selected subdistrict and district
+      const villages = data.features
+        .filter(feature => {
+          const featureSubdistrictName = feature.properties.SUB_DIST || 
+                                        feature.properties.subdistrict_name || 
+                                        feature.properties.tehsil;
+          const featureDistrictName = feature.properties.DISTRICT || 
+                                    feature.properties.district_name;
+          
+          const subdistrictMatch = featureSubdistrictName && 
+                                 featureSubdistrictName.toLowerCase().trim() === subdistrictName.toLowerCase().trim();
+          const districtMatch = !featureDistrictName || 
+                               featureDistrictName.toLowerCase().trim() === districtName.toLowerCase().trim();
+          
+          return subdistrictMatch && districtMatch;
+        })
+        .map(feature => feature.properties.NAME || 
+                       feature.properties.vname || 
+                       feature.properties.name)
+        .filter(Boolean)
+        .sort();
+      
+      setAvailableVillages(villages);
+      
+    } catch (error) {
+      console.error(`Failed to load villages for ${subdistrictName}, ${districtName}, ${stateName}:`, error);
+      setAvailableVillages([]);
+    } finally {
+      setIsLoadingVillages(false);
+    }
+  };
+
   // Handle state selection
   const handleStateChange = (e) => {
     const state = e.target.value;
     setSelectedState(state);
     setSelectedDistrict('');
     setSelectedSubdistrict('');
+    setSelectedVillage('');
     setAvailableSubdistricts([]);
+    setAvailableVillages([]);
     loadDistricts(state);
   };
 
@@ -229,7 +349,21 @@ const SearchControl = () => {
     const district = e.target.value;
     setSelectedDistrict(district);
     setSelectedSubdistrict('');
+    setSelectedVillage('');
+    setAvailableVillages([]);
     loadSubdistricts(selectedState, district);
+  };
+
+  // Handle subdistrict selection
+  const handleSubdistrictChange = (e) => {
+    const subdistrict = e.target.value;
+    setSelectedSubdistrict(subdistrict);
+    setSelectedVillage('');
+    
+    // Only load villages if village data is available for this state
+    if (isVillageDataAvailable(selectedState)) {
+      loadVillages(selectedState, selectedDistrict, subdistrict);
+    }
   };
 
   // Handle search submit
@@ -246,7 +380,51 @@ const SearchControl = () => {
       let searchStyle = {};
 
       // Determine what to search for based on selections
-      if (selectedSubdistrict && selectedDistrict) {
+      if (selectedVillage && selectedSubdistrict && selectedDistrict) {
+        // Search for village
+        const normalizedState = normalizeStateName(selectedState);
+        searchData = geoJsonData.villages[normalizedState];
+        
+        if (!searchData) {
+          alert('Village data not available');
+          return;
+        }
+
+        searchFeature = searchData.features.find(feature => {
+          const villageName = feature.properties.NAME || 
+                             feature.properties.vname || 
+                             feature.properties.name;
+          const featureSubdistrictName = feature.properties.SUB_DIST || 
+                                        feature.properties.subdistrict_name || 
+                                        feature.properties.tehsil;
+          const featureDistrictName = feature.properties.DISTRICT || 
+                                    feature.properties.district_name;
+          
+          const villageMatch = villageName && 
+                              villageName.toLowerCase().trim() === selectedVillage.toLowerCase().trim();
+          const subdistrictMatch = featureSubdistrictName && 
+                                  featureSubdistrictName.toLowerCase().trim() === selectedSubdistrict.toLowerCase().trim();
+          const districtMatch = !featureDistrictName || 
+                               featureDistrictName.toLowerCase().trim() === selectedDistrict.toLowerCase().trim();
+          
+          return villageMatch && subdistrictMatch && districtMatch;
+        });
+
+        if (!searchFeature) {
+          alert(`Village "${selectedVillage}" not found in ${selectedSubdistrict}, ${selectedDistrict}`);
+          return;
+        }
+
+        searchLevel = 'village';
+        searchStyle = { 
+          color: '#9b59b6', 
+          weight: 3, 
+          fillOpacity: 0.4,
+          fillColor: '#9b59b6',
+          dashArray: '6, 3'
+        };
+
+      } else if (selectedSubdistrict && selectedDistrict) {
         // Search for subdistrict
         const normalizedState = normalizeStateName(selectedState);
         searchData = geoJsonData.subdistricts[normalizedState];
@@ -368,18 +546,26 @@ const SearchControl = () => {
       setContextSelectedState(null);
       setContextSelectedDistrict(null);
       setContextSelectedSubdistrict(null);
+      setContextSelectedVillage(null);
       setCurrentLevel('search');
       
       // Store the search result layer based on what was searched
-      const newBoundaryLayers = { states: null, districts: null, subdistricts: null };
+      const newBoundaryLayers = { states: null, districts: null, subdistricts: null, villages: null };
       newBoundaryLayers[searchLevel === 'state' ? 'states' : 
-                       searchLevel === 'district' ? 'districts' : 'subdistricts'] = searchLayer;
+                       searchLevel === 'district' ? 'districts' : 
+                       searchLevel === 'subdistrict' ? 'subdistricts' : 'villages'] = searchLayer;
       setBoundaryLayers(newBoundaryLayers);
+
+      // Turn off boundaries after successful search to focus on search result
+      if (boundariesEnabled) {
+        console.log('🔍 Search completed - turning off boundaries to focus on search result');
+        setBoundariesEnabled(false);
+      }
 
       // Close search modal
       setIsOpen(false);
       
-      const searchTerm = selectedSubdistrict || selectedDistrict || selectedState;
+      const searchTerm = selectedVillage || selectedSubdistrict || selectedDistrict || selectedState;
       console.log(`✅ Successfully searched and zoomed to: ${searchTerm} (${searchLevel} level)`);
 
     } catch (error) {
@@ -393,9 +579,14 @@ const SearchControl = () => {
     setSelectedState('');
     setSelectedDistrict('');
     setSelectedSubdistrict('');
+    setSelectedVillage('');
     setAvailableDistricts([]);
     setAvailableSubdistricts([]);
+    setAvailableVillages([]);
   };
+
+  // Check if village selection should be enabled
+  const isVillageSelectionEnabled = selectedSubdistrict && isVillageDataAvailable(selectedState);
 
   return (
     <div className="absolute top-3 left-15 z-[1003]" ref={searchRef}>
@@ -452,9 +643,15 @@ const SearchControl = () => {
               >
                 <option value="">Choose a state...</option>
                 {indianStates.map(state => (
-                  <option key={state} value={state}>{state}</option>
+                  <option key={state} value={state}>
+                    {state}
+                    {isVillageDataAvailable(state) && ' ★'}
+                  </option>
                 ))}
               </select>
+              {selectedState && isVillageDataAvailable(selectedState) && (
+                <p className="text-xs text-green-600 mt-1">★ Village data available</p>
+              )}
             </div>
 
             {/* District Selection */}
@@ -486,7 +683,7 @@ const SearchControl = () => {
               </label>
               <select
                 value={selectedSubdistrict}
-                onChange={(e) => setSelectedSubdistrict(e.target.value)}
+                onChange={handleSubdistrictChange}
                 disabled={!selectedDistrict || isLoadingSubdistricts}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
               >
@@ -502,10 +699,37 @@ const SearchControl = () => {
               </select>
             </div>
 
+            {/* Village Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Village (Optional)
+              </label>
+              <select
+                value={selectedVillage}
+                onChange={(e) => setSelectedVillage(e.target.value)}
+                disabled={!isVillageSelectionEnabled || isLoadingVillages}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+              >
+                <option value="">
+                  {isLoadingVillages ? 'Loading villages...' : 
+                   !selectedSubdistrict ? 'First select a subdistrict' :
+                   !isVillageDataAvailable(selectedState) ? 'Village data not available for this state' :
+                   availableVillages.length === 0 ? 'No villages available' :
+                   'Choose a village...'}
+                </option>
+                {availableVillages.map(village => (
+                  <option key={village} value={village}>{village}</option>
+                ))}
+              </select>
+              {!isVillageDataAvailable(selectedState) && selectedState && (
+                <p className="text-xs text-gray-500 mt-1">Village data not available for {selectedState}</p>
+              )}
+            </div>
+
             {/* Search Info */}
             <div className="mb-4 p-2 bg-green-50 rounded-lg">
               <p className="text-xs text-green-700">
-                💡 You can search by state only, or narrow down to district/subdistrict level
+                💡 You can search by state only, or narrow down to district/subdistrict{isVillageDataAvailable(selectedState) ? '/village' : ''} level
               </p>
             </div>
 
@@ -513,10 +737,10 @@ const SearchControl = () => {
             <div className="flex space-x-2">
               <button
                 onClick={handleSearch}
-                disabled={!selectedState || isLoadingDistricts || isLoadingSubdistricts}
+                disabled={!selectedState || isLoadingDistricts || isLoadingSubdistricts || isLoadingVillages}
                 className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium text-sm"
               >
-                {(isLoadingDistricts || isLoadingSubdistricts) ? (
+                {(isLoadingDistricts || isLoadingSubdistricts || isLoadingVillages) ? (
                   <div className="flex items-center justify-center">
                     <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
