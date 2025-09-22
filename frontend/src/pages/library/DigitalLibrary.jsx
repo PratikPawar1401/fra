@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, MapPin, FileText, Calendar, User, Map, Brain, ExternalLink, Edit, Check, ChevronDown, RefreshCw, AlertCircle } from "lucide-react";
+import { X, MapPin, FileText, Calendar, User, Map, Brain, ExternalLink, Edit, Check, ChevronDown, RefreshCw, AlertCircle, Trash2, AlertTriangle } from "lucide-react";
 
 const statusOptions = ["Pending", "Under Review", "Approved", "Rejected", "OCR Processed"];
 
@@ -15,8 +15,79 @@ export default function DigitalLibrary() {
   const [isAdmin, setIsAdmin] = useState(true);
   const [showStatusDropdown, setShowStatusDropdown] = useState(null);
   const [updatingStatus, setUpdatingStatus] = useState(null);
+  
+  // ✅ Delete functionality states
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [claimToDelete, setClaimToDelete] = useState(null);
+  const [deletingClaim, setDeletingClaim] = useState(null);
 
   const API_BASE_URL = "http://127.0.0.1:8000/api/v1";
+
+  // ✅ Delete claim function
+  const handleDeleteClaim = async (claim, event) => {
+    event?.stopPropagation();
+    
+    if (!isAdmin) {
+      alert("❌ Admin privileges required to delete claims");
+      return;
+    }
+
+    setClaimToDelete(claim);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteClaim = async () => {
+    if (!claimToDelete) return;
+
+    setDeletingClaim(claimToDelete.claimId);
+    
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/claims/${claimToDelete.backendId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // Remove from local state
+        setClaims(prevClaims => 
+          prevClaims.filter(c => c.claimId !== claimToDelete.claimId)
+        );
+        
+        // Close popup if the deleted claim was selected
+        if (selectedClaim && selectedClaim.claimId === claimToDelete.claimId) {
+          setShowPopup(false);
+          setSelectedClaim(null);
+        }
+
+        alert(`✅ Successfully deleted claim ${claimToDelete.claimId}`);
+      } else {
+        throw new Error(result.message || "Delete failed");
+      }
+    } catch (err) {
+      console.error("Error deleting claim:", err);
+      alert(`❌ Failed to delete claim: ${err.message}`);
+    } finally {
+      setDeletingClaim(null);
+      setShowDeleteConfirm(false);
+      setClaimToDelete(null);
+    }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setClaimToDelete(null);
+  };
 
   // ✅ Fetch claims from Aṭavī Atlas backend
   const fetchClaims = async () => {
@@ -283,7 +354,7 @@ export default function DigitalLibrary() {
   });
 
   const handleClaimClick = (claim, event) => {
-    if (event.target.closest('.status-dropdown')) {
+    if (event.target.closest('.status-dropdown') || event.target.closest('.delete-button')) {
       return;
     }
     setSelectedClaim(claim);
@@ -373,6 +444,32 @@ export default function DigitalLibrary() {
     );
   };
 
+  // ✅ Delete Button Component
+  const DeleteButton = ({ claim }) => {
+    const isDeleting = deletingClaim === claim.claimId;
+    
+    if (!isAdmin) return null;
+    
+    return (
+      <button
+        onClick={(e) => handleDeleteClaim(claim, e)}
+        disabled={isDeleting}
+        className={`delete-button p-1 rounded-full transition-colors ${
+          isDeleting 
+            ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+            : 'hover:bg-red-100 text-red-600 hover:text-red-800'
+        }`}
+        title="Delete claim"
+      >
+        {isDeleting ? (
+          <RefreshCw size={14} className="animate-spin" />
+        ) : (
+          <Trash2 size={14} />
+        )}
+      </button>
+    );
+  };
+
   // ✅ Loading state
   if (loading) {
     return (
@@ -417,6 +514,63 @@ export default function DigitalLibrary() {
       {/* Blur overlay when popup is open */}
       {showPopup && (
         <div className="fixed inset-0 backdrop-blur-sm bg-black bg-opacity-20 z-40"></div>
+      )}
+      
+      {/* ✅ Delete Confirmation Modal */}
+      {showDeleteConfirm && claimToDelete && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black bg-opacity-50" onClick={cancelDelete}></div>
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full z-50">
+            <div className="p-6">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="h-10 w-10 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Delete Claim</h3>
+                  <p className="text-sm text-gray-600">This action cannot be undone.</p>
+                </div>
+              </div>
+              
+              <div className="mb-6">
+                <p className="text-gray-800">
+                  Are you sure you want to delete claim <strong>{claimToDelete.claimId}</strong> for <strong>{claimToDelete.applicantName}</strong>?
+                </p>
+                <div className="mt-2 p-3 bg-red-50 rounded-lg">
+                  <p className="text-sm text-red-700">
+                    <strong>Warning:</strong> This will permanently remove the claim record and all associated data from the system.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={cancelDelete}
+                  className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteClaim}
+                  disabled={deletingClaim}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {deletingClaim ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={16} />
+                      <span>Delete Claim</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       
       {/* Centered container with max width */}
@@ -535,6 +689,7 @@ export default function DigitalLibrary() {
                   <th className="py-3 px-4 text-left">Area (ha)</th>
                   <th className="py-3 px-4 text-left">Submission Date</th>
                   <th className="py-3 px-4 text-left">Status</th>
+                  {isAdmin && <th className="py-3 px-4 text-left">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -556,6 +711,11 @@ export default function DigitalLibrary() {
                     <td className="py-3 px-4">
                       <StatusDropdown claim={claim} />
                     </td>
+                    {isAdmin && (
+                      <td className="py-3 px-4">
+                        <DeleteButton claim={claim} />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -575,7 +735,7 @@ export default function DigitalLibrary() {
         </div>
       </div>
 
-      {/* Claim Details Popup - Same as before but with enhanced data */}
+      {/* Claim Details Popup - Enhanced with delete option */}
       {showPopup && selectedClaim && (
         <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -588,12 +748,23 @@ export default function DigitalLibrary() {
                 <p className="text-green-600 font-medium">{selectedClaim.claimId}</p>
                 <p className="text-sm text-gray-600">Processed via Aṭavī Atlas OCR</p>
               </div>
-              <button
-                onClick={closePopup}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X size={24} />
-              </button>
+              <div className="flex items-center space-x-2">
+                {isAdmin && (
+                  <button
+                    onClick={(e) => handleDeleteClaim(selectedClaim, e)}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Delete claim"
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                )}
+                <button
+                  onClick={closePopup}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
             </div>
 
             <div className="p-6">
@@ -724,6 +895,16 @@ export default function DigitalLibrary() {
                   <span>View Documents</span>
                   <ExternalLink size={16} />
                 </button>
+
+                {isAdmin && (
+                  <button
+                    onClick={(e) => handleDeleteClaim(selectedClaim, e)}
+                    className="flex items-center justify-center space-x-2 bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    <Trash2 size={20} />
+                    <span>Delete Claim</span>
+                  </button>
+                )}
 
                 <button
                   onClick={closePopup}
