@@ -277,34 +277,110 @@ class ClaimsService:
             self.db.rollback()
             return {"success": False, "error": str(e)}
     
-    # ✅ ADD MISSING OCR METHOD
+    # ✅ FIXED OCR METHOD - Cross-verified with your OCR service
     def create_claim_from_ocr(self, ocr_data: Dict[str, Any], document_filename: str = None) -> Dict[str, Any]:
         """Create claim from OCR processing results"""
         try:
-            # Extract data from OCR results
-            extracted_fields = ocr_data.get("extracted_data", {})
-            processing_metadata = ocr_data.get("processing_metadata", {})
+            # ✅ DEBUG: See what OCR data we're actually getting
+            print("🔍 ===== OCR DEBUG START =====")
+            print(f"🔍 OCR DATA RECEIVED: {json.dumps(ocr_data, indent=2)}")
+            print(f"🔍 DOCUMENT FILENAME: {document_filename}")
+            print("🔍 ===== OCR DEBUG END =====")
+            
+            # ✅ Handle your OCR service's specific data structure
+            if "atlas_claim_data" in ocr_data and "ocr_metadata" in ocr_data:
+                # Your OCR service returns: {atlas_claim_data: {...}, ocr_metadata: {...}}
+                atlas_claim = ocr_data["atlas_claim_data"]
+                ocr_metadata = ocr_data["ocr_metadata"]
+                extracted_fields = ocr_metadata.get("extracted_fields", {})
+            else:
+                # Fallback for other formats
+                atlas_claim = ocr_data
+                ocr_metadata = {}
+                extracted_fields = ocr_data.get("extracted_data", {}) or ocr_data.get("extracted_fields", {})
+            
+            print(f"🔍 ATLAS CLAIM DATA: {json.dumps(atlas_claim, indent=2)}")
+            print(f"🔍 OCR METADATA: {json.dumps(ocr_metadata, indent=2)}")
+            print(f"🔍 EXTRACTED FIELDS: {json.dumps(extracted_fields, indent=2)}")
+            
+            # ✅ Extract data based on your OCR service structure
+            claimant_name = (
+                atlas_claim.get("claimant_name") or
+                extracted_fields.get("FullName") or 
+                extracted_fields.get("HolderNames") or 
+                extracted_fields.get("Name") or 
+                "Unknown"
+            )
+            
+            village_name = (
+                extracted_fields.get("Village") or 
+                extracted_fields.get("VillageOrGramSabha") or
+                extracted_fields.get("village") or
+                None
+            )
+            
+            district = (
+                atlas_claim.get("district") or
+                extracted_fields.get("District") or 
+                "Unknown"
+            )
+            
+            state = (
+                atlas_claim.get("state") or
+                extracted_fields.get("State") or 
+                "Odisha"
+            )
+            
+            form_type = (
+                atlas_claim.get("form_type") or
+                ocr_metadata.get("form_type") or 
+                extracted_fields.get("FormHeading") or
+                "FRA Form"
+            )
+            
+            form_subtype = (
+                atlas_claim.get("form_subtype") or
+                ocr_metadata.get("form_subtype") or 
+                extracted_fields.get("FormSubtype") or
+                "IFR"
+            )
+            
+            # Use comments from atlas_claim or create new
+            comments = (
+                atlas_claim.get("comments") or
+                f"Processed via Aṭavī Atlas OCR pipeline on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            
+            print(f"🔍 FINAL EXTRACTED VALUES:")
+            print(f"  Claimant Name: '{claimant_name}'")
+            print(f"  Village: '{village_name}'") 
+            print(f"  District: '{district}'")
+            print(f"  State: '{state}'")
+            print(f"  Form Type: '{form_type}'")
+            print(f"  Form Subtype: '{form_subtype}'")
             
             # Create claim data structure
             claim_data = {
-                "claimant_name": extracted_fields.get("FullName") or extracted_fields.get("Name") or "Unknown",
-                "village_name": extracted_fields.get("Village"),
-                "district": extracted_fields.get("District", "Unknown"),
-                "state": extracted_fields.get("State", "Odisha"),
-                "form_type": processing_metadata.get("form_type", "FRA Form"),
-                "form_subtype": processing_metadata.get("form_subtype", "IFR"),
+                "claimant_name": claimant_name,
+                "village_name": village_name,
+                "district": district,
+                "state": state,
+                "form_type": form_type,
+                "form_subtype": form_subtype,
                 "status": "OCR Processed",
                 "priority": "Medium",
-                "comments": f"Processed via Aṭavī Atlas OCR pipeline on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "comments": comments,
                 "document_filename": document_filename,
                 "ocr_metadata": {
-                    "atlas_version": "1.0.0",
+                    "atlas_version": ocr_metadata.get("atlas_version", "1.0.0"),
                     "processing_date": datetime.now().isoformat(),
-                    "confidence": processing_metadata.get("confidence", 0.0),
-                    "form_type": processing_metadata.get("form_type"),
-                    "form_subtype": processing_metadata.get("form_subtype"),
-                    "raw_text": ocr_data.get("raw_text", ""),
-                    "processing_time": processing_metadata.get("processing_time", 0)
+                    "confidence": ocr_metadata.get("confidence", 0.0),
+                    "form_type": form_type,
+                    "form_subtype": form_subtype,
+                    "raw_text": ocr_metadata.get("raw_text", ""),
+                    "processing_time": ocr_metadata.get("processing_time", 0),
+                    "processing_timestamp": ocr_metadata.get("processing_timestamp"),
+                    "pilot_state": ocr_metadata.get("pilot_state", "Odisha")
                 },
                 "extracted_fields": extracted_fields,
                 # Extract coordinates if available
@@ -312,22 +388,28 @@ class ClaimsService:
                 "longitude": self._extract_coordinate(extracted_fields, "longitude")
             }
             
+            print(f"🔍 CLAIM DATA TO CREATE: {json.dumps(claim_data, indent=2, default=str)}")
+            
             # Create the claim
             result = self.create_claim(claim_data)
             
             if result["success"]:
+                print(f"✅ SUCCESS: Claim {result['claim_id']} created for '{claimant_name}'")
                 return {
                     "success": True,
                     "claim_id": result["claim_id"],
-                    "message": f"Claim created from OCR: {claim_data['claimant_name']}",
-                    "ocr_confidence": processing_metadata.get("confidence", 0.0),
-                    "form_detected": processing_metadata.get("form_subtype", "Unknown")
+                    "message": f"Claim created from OCR: {claimant_name}",
+                    "ocr_confidence": ocr_metadata.get("confidence", 0.0),
+                    "form_detected": form_subtype
                 }
             else:
+                print(f"❌ FAILED to create claim: {result}")
                 return result
                 
         except Exception as e:
             print(f"❌ Error creating claim from OCR: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": f"Failed to create claim from OCR: {str(e)}"
