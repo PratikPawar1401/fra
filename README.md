@@ -127,7 +127,3 @@ cd mobile
 flutter pub get
 flutter run
 ```
-
-[7](https://www.youtube.com/watch?v=eVGEea7adDM)
-[8](https://github.com/interledger/hackathon-submission-template)
-[9](https://www.linkedin.com/posts/sumonta-saha-mridul-b35bb61a0_github-readme-git-activity-7238736169738366976-07iO)
