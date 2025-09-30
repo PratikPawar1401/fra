@@ -9,9 +9,8 @@ const StructuredUpload = () => {
   const [extractedFields, setExtractedFields] = useState(null);
   const [formData, setFormData] = useState({});
   const [supportingDocuments, setSupportingDocuments] = useState([]);
+  const [geojsonFile, setGeojsonFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // ✅ Backend integration states
   const [backendStatus, setBackendStatus] = useState(null);
   const [claimTypes, setClaimTypes] = useState({
     new_claim: {
@@ -41,7 +40,6 @@ const StructuredUpload = () => {
     { number: 5, title: 'Submit', description: 'Submit your claim' }
   ];
 
-  // ✅ Check backend health on component mount
   useEffect(() => {
     checkBackendHealth();
     fetchFormTypes();
@@ -58,14 +56,11 @@ const StructuredUpload = () => {
     }
   };
 
-  // ✅ Fetch form types from Atlas backend
   const fetchFormTypes = async () => {
     try {
       const response = await fetch('http://127.0.0.1:8000/api/v1/ocr/form-types');
       const data = await response.json();
-      
       if (data.status === 'success') {
-        // Update claimTypes with backend data
         const backendTypes = {};
         Object.entries(data.supported_forms).forEach(([key, value]) => {
           backendTypes[key] = {
@@ -81,9 +76,44 @@ const StructuredUpload = () => {
       }
     } catch (error) {
       console.error('Failed to fetch form types:', error);
-      // Keep default claimTypes
     }
   };
+
+  const uploadToS3 = async (file, fileName) => {
+  try {
+    const formData = new FormData();
+    
+    // For GeoJSON files, create a new File object with correct MIME type
+    if (fileName.toLowerCase().endsWith('.geojson')) {
+      const geojsonFile = new File([file], fileName, {
+        type: 'application/geo+json',
+        lastModified: file.lastModified
+      });
+      formData.append('file', geojsonFile);
+    } else {
+      formData.append('file', file);
+    }
+    
+    formData.append('fileName', fileName);
+    
+    const response = await fetch('http://127.0.0.1:8000/api/v1/upload/s3', {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`S3 upload failed: ${response.status} - ${errorText}`);
+    }
+    
+    const result = await response.json();
+    return result.s3_url;
+  } catch (error) {
+    console.error('S3 upload error:', error);
+    throw error;
+  }
+};
+
 
   const handleClaimTypeNext = () => {
     if (claimType && formSubtype) {
@@ -95,51 +125,34 @@ const StructuredUpload = () => {
     const file = e.target.files[0];
     if (file) {
       setMainFormFile(file);
-      setProcessingResult(null); // Reset previous results
+      setProcessingResult(null);
     }
   };
 
-  //  Updated OCR processing with Atlas backend
   const processFormWithOCR = async () => {
     if (!mainFormFile) return;
-    
     setIsProcessing(true);
     try {
       const formDataObj = new FormData();
       formDataObj.append('file', mainFormFile);
       formDataObj.append('form_type', claimType);
-
-      console.log(' Processing document with Atlas backend...');
-      
-      //  Atlas backend endpoint
       const response = await fetch('http://127.0.0.1:8000/api/v1/ocr/process-document', {
         method: 'POST',
         body: formDataObj,
       });
-
       if (!response.ok) {
         throw new Error(`OCR processing failed: ${response.status}`);
       }
-
       const result = await response.json();
-      
       if (result.success) {
-        //  Use Atlas response structure
         const extractedData = result.atlas_claim_data?.extracted_data || {};
         setExtractedFields(extractedData);
         setFormData(extractedData);
         setProcessingResult(result);
-        
-        // Show success message with database info
-        if (result.database_info?.saved) {
-          console.log('✅ Claim saved to database:', result.database_info.claim_id);
-        }
-        
         setCurrentStep(3);
       } else {
         throw new Error(result.error || 'OCR processing failed');
       }
-      
     } catch (error) {
       console.error('OCR processing error:', error);
       alert(`Failed to process the form: ${error.message}. Please try again.`);
@@ -171,11 +184,50 @@ const StructuredUpload = () => {
     setSupportingDocuments(prev => prev.filter(doc => doc.id !== docId));
   };
 
-  //  Simplified submit function - Atlas backend handles storage
+  const handleGeojsonUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (!file.name.toLowerCase().endsWith('.geojson') && file.type !== 'application/geo+json') {
+        alert('Please upload a valid .geojson file');
+        return;
+      }
+      setGeojsonFile(file);
+    }
+  };
+
+  const removeGeojsonFile = () => {
+    setGeojsonFile(null);
+  };
+
   const submitClaim = async () => {
     setIsSubmitting(true);
     try {
-      //  Your backend already saved the main form during OCR processing
+      let formDocUrl = null;
+      let geojsonFileUrl = null;
+      let supportingDocUrls = [];
+
+      // Upload main form
+      if (mainFormFile) {
+        console.log('Uploading main form...');
+        formDocUrl = await uploadToS3(mainFormFile, `main-form-${Date.now()}-${mainFormFile.name}`);
+      }
+
+      // Upload GeoJSON
+      if (geojsonFile) {
+        console.log('Uploading GeoJSON...');
+        geojsonFileUrl = await uploadToS3(geojsonFile, `geojson-${Date.now()}-${geojsonFile.name}`);
+      }
+
+      // Upload supporting documents
+      if (supportingDocuments.length > 0) {
+        console.log('Uploading supporting documents...');
+        for (const doc of supportingDocuments) {
+          const docUrl = await uploadToS3(doc.file, `supporting-${Date.now()}-${doc.name}`);
+          supportingDocUrls.push(docUrl);
+        }
+      }
+
+      // Finalize claim
       const claimData = {
         claimant_name: formData.FullName || formData.HolderNames || '',
         district: formData.District || '',
@@ -183,31 +235,39 @@ const StructuredUpload = () => {
         form_type: `${claimTypes[claimType].name} - ${formSubtype}`,
         extracted_fields: formData,
         status: 'Submitted',
-        supporting_documents: supportingDocuments.map(doc => ({
-          name: doc.name,
-          type: 'supporting'
-        })),
-        database_claim_id: processingResult?.database_info?.claim_id
+        database_claim_id: processingResult?.database_info?.claim_id,
+        form_doc_url: formDocUrl,
+        geojson_file_url: geojsonFileUrl,
+        supporting_doc_urls: supportingDocUrls,
+        ocr_metadata: processingResult?.ocr_metadata || {}
       };
 
-      // Show success message with Atlas details
+      const response = await fetch('http://127.0.0.1:8000/api/v1/claims/finalize', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(claimData),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to finalize claim: ${response.status}`);
+      }
+
+      const result = await response.json();
       const successMessage = `🎉 Claim processed successfully through Aṭavī Atlas!
       
- OCR Processing: Complete
- Database Storage: Complete  
-${processingResult?.database_info?.claim_id ? `✅ Database ID: ${processingResult.database_info.claim_id}` : ''}
- Form Type: ${claimTypes[claimType].name} - ${formSubtype}
- Claimant: ${claimData.claimant_name}
- District: ${claimData.district}
- State: Odisha (Pilot)
+      OCR Processing: Complete
+      Database Storage: Complete  
+      File Storage: Complete
+      Database ID: ${result.claim_id}
+      Form Type: ${claimTypes[claimType].name} - ${formSubtype}
+      Claimant: ${claimData.claimant_name}
+      District: ${claimData.district}
+      State: Odisha (Pilot)
       
-Your claim has been automatically saved to the Atlas database and is ready for review.`;
+      Your claim has been saved to the Atlas database with all files stored securely.`;
 
       alert(successMessage);
-      
-      // Reset form for new submission
       resetForm();
-      
     } catch (error) {
       console.error('Submission error:', error);
       alert('Failed to submit claim. Please try again.');
@@ -224,10 +284,10 @@ Your claim has been automatically saved to the Atlas database and is ready for r
     setExtractedFields(null);
     setFormData({});
     setSupportingDocuments([]);
+    setGeojsonFile(null);
     setProcessingResult(null);
   };
 
-  //  Backend status indicator
   const renderBackendStatus = () => (
     <div className={`mb-4 p-3 rounded-lg text-sm ${
       backendStatus === 'online' 
@@ -289,7 +349,6 @@ Your claim has been automatically saved to the Atlas database and is ready for r
   const renderStep1 = () => (
     <div className="bg-white rounded-lg shadow-sm border p-6">
       <h2 className="text-xl font-semibold text-gray-800 mb-4">Select Claim Type</h2>
-      
       <div className="space-y-4 mb-6">
         {Object.entries(claimTypes).map(([key, type]) => (
           <label key={key} className="cursor-pointer">
@@ -315,7 +374,6 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           </label>
         ))}
       </div>
-
       {claimType && (
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -333,7 +391,6 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           </select>
         </div>
       )}
-
       <button
         onClick={handleClaimTypeNext}
         disabled={!claimType || !formSubtype || backendStatus !== 'online'}
@@ -341,7 +398,6 @@ Your claim has been automatically saved to the Atlas database and is ready for r
       >
         Next Step
       </button>
-      
       {backendStatus !== 'online' && (
         <p className="text-red-600 text-sm mt-2">Please ensure Atlas backend is running to continue.</p>
       )}
@@ -351,18 +407,15 @@ Your claim has been automatically saved to the Atlas database and is ready for r
   const renderStep2 = () => (
     <div className="bg-white rounded-lg shadow-sm border p-6">
       <h2 className="text-xl font-semibold text-gray-800 mb-4">Upload Claim Form</h2>
-      
       <div className="mb-4 p-3 bg-green-50 rounded-lg">
         <p className="text-sm text-green-700">
           <strong>Selected:</strong> {claimTypes[claimType].name} - {claimTypes[claimType].subtypes[formSubtype]}
         </p>
       </div>
-
       <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center mb-4">
         <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
         </svg>
-        
         {mainFormFile ? (
           <div className="text-green-600">
             <p className="font-medium">File Selected:</p>
@@ -378,7 +431,6 @@ Your claim has been automatically saved to the Atlas database and is ready for r
             <p className="text-xs text-green-600">🌳 Powered by Aṭavī Atlas OCR</p>
           </div>
         )}
-
         <input
           type="file"
           accept=".pdf,.jpg,.jpeg,.png"
@@ -393,7 +445,6 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           {mainFormFile ? 'Change File' : 'Select File'}
         </label>
       </div>
-
       <div className="flex space-x-4">
         <button
           onClick={() => setCurrentStep(1)}
@@ -406,7 +457,7 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           disabled={!mainFormFile || isProcessing || backendStatus !== 'online'}
           className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
-          {isProcessing ? ' Processing with Atlas OCR...' : ' Process Form'}
+          {isProcessing ? 'Processing with Atlas OCR...' : 'Process Form'}
         </button>
       </div>
     </div>
@@ -416,23 +467,19 @@ Your claim has been automatically saved to the Atlas database and is ready for r
     const fields = claimType === 'new_claim' 
       ? ['FullName', 'District', 'Village', 'Address', 'GramPanchayat', 'Tehsil']
       : ['HolderNames', 'District', 'VillageOrGramSabha', 'Address'];
-
     return (
       <div className="bg-white rounded-lg shadow-sm border p-6">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">Verify Extracted Information</h2>
         <p className="text-gray-600 mb-4">Please review and correct the information extracted by Atlas OCR:</p>
-
-        {/*  Show processing success info */}
-        {processingResult?.database_info?.saved && (
+        {processingResult?.ocr_metadata && (
           <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
             <p className="text-sm text-green-700">
-               <strong>Successfully processed by Aṭavī Atlas!</strong><br/>
-              Database ID: {processingResult.database_info.claim_id} | 
-              Form Type: {processingResult.atlas_claim_data.form_subtype || formSubtype}
+              <strong>Successfully processed by Aṭavī Atlas!</strong><br/>
+              Form Type Detected: {processingResult.atlas_claim_data?.form_subtype || formSubtype}<br/>
+              Confidence: {(processingResult.ocr_metadata.confidence * 100).toFixed(2)}%
             </p>
           </div>
         )}
-
         <div className="space-y-4 mb-6">
           {fields.map(field => (
             <div key={field}>
@@ -449,7 +496,6 @@ Your claim has been automatically saved to the Atlas database and is ready for r
             </div>
           ))}
         </div>
-
         <div className="flex space-x-4">
           <button
             onClick={() => setCurrentStep(2)}
@@ -472,7 +518,6 @@ Your claim has been automatically saved to the Atlas database and is ready for r
     <div className="bg-white rounded-lg shadow-sm border p-6">
       <h2 className="text-xl font-semibold text-gray-800 mb-4">Supporting Documents</h2>
       <p className="text-gray-600 mb-6">Upload any supporting documents for your claim (optional):</p>
-
       <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center mb-4">
         <input
           type="file"
@@ -489,7 +534,6 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           Add Supporting Documents
         </label>
       </div>
-
       {supportingDocuments.length > 0 && (
         <div className="space-y-2 mb-6">
           {supportingDocuments.map(doc => (
@@ -505,8 +549,55 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           ))}
         </div>
       )}
-
-      <div className="flex space-x-4">
+      <div className="mt-8">
+        <h3 className="text-lg font-medium text-gray-800 mb-3">Geographic Boundary File</h3>
+        <p className="text-gray-600 mb-4">Upload a GeoJSON file containing the geographic boundaries of your claim (required):</p>
+        <div className="border-2 border-dashed border-blue-300 rounded-lg p-6 text-center mb-4">
+          <svg className="w-10 h-10 text-blue-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path>
+          </svg>
+          {geojsonFile ? (
+            <div className="text-blue-600">
+              <p className="font-medium">GeoJSON File Selected:</p>
+              <p className="text-sm">{geojsonFile.name}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Geographic boundary data ready
+              </p>
+            </div>
+          ) : (
+            <div>
+              <h4 className="text-md font-medium text-gray-800 mb-2">Upload GeoJSON File</h4>
+              <p className="text-gray-600 text-sm mb-3">Geographic boundary information for your forest rights claim</p>
+              <p className="text-xs text-blue-600">📍 Accepts .geojson files only</p>
+            </div>
+          )}
+          <input
+            type="file"
+            accept=".geojson,application/geo+json"
+            onChange={handleGeojsonUpload}
+            className="hidden"
+            id="geojsonUpload"
+          />
+          <label
+            htmlFor="geojsonUpload"
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors cursor-pointer"
+          >
+            {geojsonFile ? 'Change GeoJSON File' : 'Select GeoJSON File'}
+          </label>
+          {geojsonFile && (
+            <button
+              onClick={removeGeojsonFile}
+              className="ml-2 text-red-600 hover:text-red-700 text-sm underline"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+        <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
+          <p><strong>Note:</strong> The GeoJSON file must contain polygon coordinates defining the boundaries of your forest rights claim area.</p>
+        </div>
+      </div>
+      <div className="flex space-x-4 mt-6">
         <button
           onClick={() => setCurrentStep(3)}
           className="px-6 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
@@ -515,10 +606,14 @@ Your claim has been automatically saved to the Atlas database and is ready for r
         </button>
         <button
           onClick={() => setCurrentStep(5)}
+          disabled={!geojsonFile}
           className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors"
         >
           Continue
         </button>
+        {!geojsonFile && (
+          <p className="text-red-600 text-sm mt-2">Please upload a GeoJSON file to continue.</p>
+        )}
       </div>
     </div>
   );
@@ -526,23 +621,27 @@ Your claim has been automatically saved to the Atlas database and is ready for r
   const renderStep5 = () => (
     <div className="bg-white rounded-lg shadow-sm border p-6">
       <h2 className="text-xl font-semibold text-gray-800 mb-4">Review & Submit</h2>
-      
       <div className="space-y-4 mb-6">
         <div className="p-4 bg-gray-50 rounded-lg">
           <h3 className="font-medium text-gray-800">Claim Type</h3>
           <p className="text-sm text-gray-600">{claimTypes[claimType].name} - {formSubtype}</p>
         </div>
-        
         <div className="p-4 bg-gray-50 rounded-lg">
           <h3 className="font-medium text-gray-800">Main Form</h3>
           <p className="text-sm text-gray-600">{mainFormFile?.name}</p>
           {processingResult?.database_info?.saved && (
             <p className="text-xs text-green-600 mt-1">
-               Already saved to Atlas database (ID: {processingResult.database_info.claim_id})
+              Already saved to Atlas database (ID: {processingResult.database_info.claim_id})
             </p>
           )}
         </div>
-
+        {geojsonFile && (
+          <div className="p-4 bg-blue-50 rounded-lg">
+            <h3 className="font-medium text-gray-800">Geographic Boundary File</h3>
+            <p className="text-sm text-gray-600">📍 {geojsonFile.name}</p>
+            <p className="text-xs text-blue-600 mt-1">Contains geographic boundary data</p>
+          </div>
+        )}
         {supportingDocuments.length > 0 && (
           <div className="p-4 bg-gray-50 rounded-lg">
             <h3 className="font-medium text-gray-800">Supporting Documents</h3>
@@ -553,18 +652,17 @@ Your claim has been automatically saved to the Atlas database and is ready for r
             </ul>
           </div>
         )}
-
         <div className="p-4 bg-green-50 rounded-lg border border-green-200">
           <h3 className="font-medium text-green-800">🌳 Aṭavī Atlas Processing Summary</h3>
           <ul className="text-sm text-green-700 mt-2 space-y-1">
-            <li> OCR processing completed</li>
-            <li> Data extracted and verified</li>
-            <li> Stored in Atlas database</li>
-            <li> Ready for government review</li>
+            <li>✅ OCR processing completed</li>
+            <li>✅ Data extracted and verified</li>
+            <li>✅ Stored in Atlas database</li>
+            <li>📦 Files will be uploaded upon submission</li>
+            <li>✅ Ready for government review</li>
           </ul>
         </div>
       </div>
-
       <div className="flex space-x-4">
         <button
           onClick={() => setCurrentStep(4)}
@@ -577,7 +675,7 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           disabled={isSubmitting}
           className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
-          {isSubmitting ? 'Finalizing...' : ' Complete Submission'}
+          {isSubmitting ? '📤 Uploading & Finalizing...' : '📤 Complete Submission'}
         </button>
       </div>
     </div>
@@ -591,12 +689,8 @@ Your claim has been automatically saved to the Atlas database and is ready for r
           Follow the steps below to submit your forest rights claim application through the Atlas system.
         </p>
       </div>
-
-      {/*  Backend status indicator */}
       {renderBackendStatus()}
-
       {renderStepIndicator()}
-
       {currentStep === 1 && renderStep1()}
       {currentStep === 2 && renderStep2()}
       {currentStep === 3 && renderStep3()}

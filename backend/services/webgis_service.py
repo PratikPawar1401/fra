@@ -42,7 +42,7 @@ class WebGISService:
                 return True
             except Exception as auth_error:
                 print(f"❌ GEE initialization failed: {auth_error}")
-                print("⚠️ WebGIS will run in fallback mode")
+                print("⚠ WebGIS will run in fallback mode")
                 return False
     
     def analyze_geojson_for_claim(self, geojson_data: dict, claim_id: int) -> Dict[str, Any]:
@@ -62,12 +62,12 @@ class WebGISService:
                     print(f"✅ GEE processing completed successfully")
                     processing_mode = "gee_active"
                 except Exception as gee_error:
-                    print(f"⚠️ GEE processing failed, falling back to mock data: {str(gee_error)}")
+                    print(f"⚠ GEE processing failed, falling back to mock data: {str(gee_error)}")
                     gee_results = self._get_fallback_results()
                     processing_mode = "gee_fallback"
             else:
                 # ✅ Fallback to mock data when GEE is not available
-                print("⚠️ Using fallback mock data (GEE not available)")
+                print("⚠ Using fallback mock data (GEE not available)")
                 gee_results = self._get_fallback_results()
                 processing_mode = "gee_unavailable"
             
@@ -104,7 +104,7 @@ class WebGISService:
             # Convert GeoJSON to Earth Engine geometry
             user_aoi = geemap.geojson_to_ee(geojson_data)
             
-            print("🛰️ Loading Sentinel-2 imagery...")
+            print("🛰 Loading Sentinel-2 imagery...")
             
             # FIXED: Use the same cloud masking as your original working code
             composite_image = (
@@ -141,7 +141,7 @@ class WebGISService:
             # Get the results
             analytics_result = area_by_class.getInfo()
             
-            print("🗂️ Processing analytics results...")
+            print("🗂 Processing analytics results...")
             
             # FIXED: Process analytics exactly like original code
             final_analytics = {}
@@ -158,7 +158,7 @@ class WebGISService:
                     final_analytics[class_name] = round(area_hectares, 2)
                     total_area += area_hectares
             
-            print("🗺️ Generating visualization...")
+            print("🗺 Generating visualization...")
             
             # FIXED: Use exact same visualization parameters as original
             vis_params = {

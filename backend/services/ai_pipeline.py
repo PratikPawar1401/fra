@@ -1,3 +1,4 @@
+# services/ai_pipeline.py
 import os
 import sys
 import tempfile
@@ -13,14 +14,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'ai-pipeline
 
 from ocr_service import FRAOCRService
 
-# Import claims service for database integration
+# Import claims service for database integration (not used for OCR processing)
 try:
     from services.claims_service import claims_service
     DATABASE_INTEGRATION = True
     print("💾 Database integration available")
 except ImportError:
     DATABASE_INTEGRATION = False
-    print("⚠️  Database integration not available")
+    print("⚠  Database integration not available")
 
 
 class AtaviAIPipeline:
@@ -31,16 +32,16 @@ class AtaviAIPipeline:
     
     def __init__(self):
         # Get API key from environment or use default
-        self.api_key = os.getenv("LLMWHISPERER_API_KEY", "xjltT5sclQmrRobjlnbNDiNjcC0Q2L25jQxVpaV1u9M")
+        self.api_key = os.getenv("LLMWHISPERER_API_KEY")
         
-        # Initialize OCR service (will use environment key automatically now)
+        # Initialize OCR service
         self.ocr_service = FRAOCRService(api_key=self.api_key)
         
         print(f"🔑 LLMWhisperer API Key loaded: {'✅' if self.api_key else '❌'}")
-        print(f"🗃️  Database integration: {'✅ Available' if DATABASE_INTEGRATION else '❌ Unavailable'}")
+        print(f"🗃  Database integration: {'✅ Available' if DATABASE_INTEGRATION else '❌ Unavailable'}")
 
     async def process_document(self, file: UploadFile, form_type: str) -> Dict[str, Any]:
-        """Process FRA document through OCR pipeline and save to database"""
+        """Process FRA document through OCR pipeline without saving to database"""
         temp_path = None
         try:
             # Validate file
@@ -61,36 +62,6 @@ class AtaviAIPipeline:
             # Handle OCR results
             if result.get("success"):
                 print(f"✅ OCR processing successful for {file.filename}")
-                
-                # 🆕 SAVE TO DATABASE (if available)
-                if DATABASE_INTEGRATION:
-                    try:
-                        db_result = claims_service.create_claim_from_ocr(result, file.filename)
-                        if db_result.get("success"):
-                            result["database_info"] = {
-                                "saved": True,
-                                "claim_id": db_result.get("claim_id"),
-                                "message": "Claim saved to database successfully"
-                            }
-                            print(f"💾 Claim saved to database: ID {db_result.get('claim_id')}")
-                        else:
-                            result["database_info"] = {
-                                "saved": False,
-                                "error": db_result.get("error", "Unknown database error")
-                            }
-                            print(f"❌ Database save failed: {db_result.get('error')}")
-                    except Exception as db_error:
-                        result["database_info"] = {
-                            "saved": False,
-                            "error": str(db_error)
-                        }
-                        print(f"❌ Database integration error: {str(db_error)}")
-                else:
-                    result["database_info"] = {
-                        "saved": False,
-                        "message": "Database integration not available"
-                    }
-                    
             else:
                 print(f"❌ OCR processing failed for {file.filename}")
                 result["database_info"] = {
