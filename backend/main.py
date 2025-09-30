@@ -375,6 +375,89 @@ async def finalize_claim(claim_data: FinalizeClaimData):
         logger.error(f"Finalize failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Finalize failed: {str(e)}")
 
+@app.post("/api/v1/webgis/analyze-for-claim/{claim_id}")
+async def analyze_for_claim(claim_id: int = Path(...), file: UploadFile = File(...)):
+    if not file.filename.endswith('.geojson'):
+        raise HTTPException(400, "Please upload a GeoJSON file")
+    try:
+        contents = await file.read()
+        geojson_data = json.loads(contents)
+        results = webgis_service.analyze_geojson_for_claim(geojson_data, claim_id)
+        return {
+            "status": "success",
+            "results": {
+                "gee_analysis": results["gee_analysis"]
+            }
+        }
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid GeoJSON format")
+    except Exception as e:
+        raise HTTPException(500, f"Analysis failed: {str(e)}")
+
+@app.get("/api/v1/webgis/claim/{claim_id}")
+async def get_claim_webgis(claim_id: int):
+    try:
+        data = webgis_service.get_claim_webgis_data(claim_id)
+        if not data["has_webgis_data"]:
+            return {"status": "no_data", "message": "No WebGIS data available for this claim"}
+        analytics = {}
+        total_area_hectares = 0
+        forest_coverage_percent = 0
+        for anal in data["detailed_analytics"]:
+            analytics[anal["land_class"]] = anal["area_hectares"]
+            total_area_hectares += anal["area_hectares"]
+            if "Forest" in anal["land_class"]:
+                forest_coverage_percent = anal["percentage"]
+        satellite_image_url = data["analysis_outputs"][0]["satellite_image_url"] if data["analysis_outputs"] else None
+        return {
+            "success": True,
+            "gee_analysis": {
+                "analytics": analytics,
+                "total_area_hectares": round(total_area_hectares, 2),
+                "forest_coverage_percent": round(forest_coverage_percent, 2),
+                "satellite_image_url": satellite_image_url,
+                "image_url": satellite_image_url,
+                "processing_metadata": data["analysis_outputs"][0]["model_metadata"] if data["analysis_outputs"] else {}
+            }
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Error retrieving WebGIS data: {str(e)}")
+
+@app.post("/api/v1/webgis/analyze-claim-auto/{claim_id}")
+async def analyze_claim_auto(claim_id: int = Path(...)):
+    """Auto-fetch GeoJSON from claim and analyze"""
+    try:
+        # Get claim data
+        claim = claims_service.get_claim_by_id(claim_id, include_full_data=False)
+        if not claim:
+            raise HTTPException(404, f"Claim {claim_id} not found")
+        
+        if not claim.get("geojson_file_url"):
+            raise HTTPException(400, "Claim has no GeoJSON file")
+        
+        # Fetch GeoJSON from URL (backend fetches it)
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(claim["geojson_file_url"])
+            response.raise_for_status()
+            geojson_data = response.json()
+        
+        # Analyze it
+        results = webgis_service.analyze_geojson_for_claim(geojson_data, claim_id)
+        
+        # DEBUG: Log the full response
+        print("🔍 Full results:", json.dumps(results, indent=2))
+        print("🗺️ Satellite URL:", results["gee_analysis"].get("satellite_image_url"))
+        
+        return {
+            "success" : True,
+            "gee_analysis": results["gee_analysis"]
+        }
+    except httpx.HTTPError as e:
+        raise HTTPException(500, f"Failed to fetch GeoJSON: {str(e)}")
+    except Exception as e:
+        raise HTTPException(500, f"Analysis failed: {str(e)}")
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
