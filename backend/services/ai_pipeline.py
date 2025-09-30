@@ -32,7 +32,7 @@ class AtaviAIPipeline:
     
     def __init__(self):
         # Get API key from environment or use default
-        self.api_key = os.getenv("LLMWHISPERER_API_KEY", "xjltT5sclQmrRobjlnbNDiNjcC0Q2L25jQxVpaV1u9M")
+        self.api_key = os.getenv("LLMWHISPERER_API_KEY")
         
         # Initialize OCR service
         self.ocr_service = FRAOCRService(api_key=self.api_key)

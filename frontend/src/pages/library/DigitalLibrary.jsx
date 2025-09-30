@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, MapPin, FileText, Calendar, User, Map, Brain, ExternalLink, Edit, Check, ChevronDown, RefreshCw, AlertCircle, Trash2, AlertTriangle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export default function DigitalLibrary() {
   const [claims, setClaims] = useState([]);
@@ -17,6 +18,7 @@ export default function DigitalLibrary() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [claimToDelete, setClaimToDelete] = useState(null);
   const [deletingClaim, setDeletingClaim] = useState(null);
+  const navigate = useNavigate();
 
   const API_BASE_URL = "http://127.0.0.1:8000/api/v1";
 
@@ -392,7 +394,7 @@ export default function DigitalLibrary() {
 
   const handleWebGISClick = (claim) => {
     console.log(`Opening WebGIS for claim ${claim.claimId}`);
-    window.open(`/viewgis/${claim.backendId}`, '_blank');
+    navigate(`/viewgis/${claim.backendId}`);
   };
 
   const handleDSSClick = (claim) => {
