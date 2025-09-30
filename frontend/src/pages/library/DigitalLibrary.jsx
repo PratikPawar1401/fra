@@ -1,13 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X, MapPin, FileText, Calendar, User, Map, Brain, ExternalLink, Edit, Check, ChevronDown, RefreshCw, AlertCircle, Trash2, AlertTriangle } from "lucide-react";
-import { useNavigate } from 'react-router-dom'; // ✅ Add this import
-
-const statusOptions = ["Pending", "Under Review", "Approved", "Rejected", "OCR Processed"];
 
 export default function DigitalLibrary() {
-  // ✅ Add navigate hook
-  const navigate = useNavigate();
-  
   const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -19,20 +13,18 @@ export default function DigitalLibrary() {
   const [isAdmin, setIsAdmin] = useState(true);
   const [showStatusDropdown, setShowStatusDropdown] = useState(null);
   const [updatingStatus, setUpdatingStatus] = useState(null);
-  
-  // ✅ Delete functionality states
+  const [searchLoading, setSearchLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [claimToDelete, setClaimToDelete] = useState(null);
   const [deletingClaim, setDeletingClaim] = useState(null);
 
   const API_BASE_URL = "http://127.0.0.1:8000/api/v1";
 
-  // ✅ Delete claim function
   const handleDeleteClaim = async (claim, event) => {
     event?.stopPropagation();
     
     if (!isAdmin) {
-      alert("❌ Admin privileges required to delete claims");
+      alert("Admin privileges required to delete claims");
       return;
     }
 
@@ -62,25 +54,23 @@ export default function DigitalLibrary() {
 
       const result = await response.json();
       
-      if (result.success) {
-        // Remove from local state
+      if (result.success || result.status === "success") {
         setClaims(prevClaims => 
           prevClaims.filter(c => c.claimId !== claimToDelete.claimId)
         );
         
-        // Close popup if the deleted claim was selected
         if (selectedClaim && selectedClaim.claimId === claimToDelete.claimId) {
           setShowPopup(false);
           setSelectedClaim(null);
         }
 
-        alert(`✅ Successfully deleted claim ${claimToDelete.claimId}`);
+        alert(`Successfully deleted claim ${claimToDelete.claimId}`);
       } else {
         throw new Error(result.message || "Delete failed");
       }
     } catch (err) {
       console.error("Error deleting claim:", err);
-      alert(`❌ Failed to delete claim: ${err.message}`);
+      alert(`Failed to delete claim: ${err.message}`);
     } finally {
       setDeletingClaim(null);
       setShowDeleteConfirm(false);
@@ -93,7 +83,6 @@ export default function DigitalLibrary() {
     setClaimToDelete(null);
   };
 
-  // ✅ Fetch claims from Aṭavī Atlas backend
   const fetchClaims = async () => {
     try {
       setLoading(true);
@@ -108,7 +97,6 @@ export default function DigitalLibrary() {
       const data = await response.json();
       
       if (data.status === "success") {
-        // Transform backend data to match frontend structure
         const transformedClaims = data.claims.map(claim => ({
           claimId: `FRA-${claim.id.toString().padStart(3, '0')}`,
           applicantName: claim.claimant_name || "Unknown",
@@ -122,15 +110,23 @@ export default function DigitalLibrary() {
           description: claim.comments || `${claim.form_type} claim processed via Atlas OCR`,
           coordinates: getCoordinates(claim),
           contactNumber: "Contact via Forest Department",
-          documentCount: claim.document_filename ? 1 : 0,
           reviewedBy: claim.assigned_officer || "Pending Assignment",
           reviewDate: claim.submission_date ? formatDate(claim.submission_date) : "N/A",
           remarks: claim.verification_notes || "Processed through Aṭavī Atlas system",
-          // Backend specific fields
           backendId: claim.id,
           extracted_fields: claim.extracted_fields,
           document_filename: claim.document_filename,
-          priority: claim.priority
+          priority: claim.priority,
+          documentCount: (claim.form_doc_url ? 1 : 0) + (claim.geojson_file_url ? 1 : 0) + (claim.supporting_doc_urls ? claim.supporting_doc_urls.length : 0),
+          documents: [
+            claim.form_doc_url && { type: 'Main Form', url: claim.form_doc_url, name: claim.document_filename || 'Main Form' },
+            ...(claim.supporting_doc_urls || []).map((url, index) => ({
+              type: 'Supporting',
+              url,
+              name: `Supporting Document ${index + 1}`
+            })),
+            claim.geojson_file_url && { type: 'GeoJSON', url: claim.geojson_file_url, name: 'GeoJSON Boundary File' }
+          ].filter(Boolean)
         }));
         
         setClaims(transformedClaims);
@@ -145,7 +141,6 @@ export default function DigitalLibrary() {
     }
   };
 
-  // ✅ Transform backend data helpers
   const getClaimTypeDisplay = (formSubtype) => {
     const typeMap = {
       'IFR': 'Individual Forest Rights',
@@ -177,7 +172,6 @@ export default function DigitalLibrary() {
       return `${claim.latitude}° N, ${claim.longitude}° E`;
     }
     
-    // Default coordinates for districts
     const districtCoords = {
       'Mayurbhanj': '22.1467° N, 86.7425° E',
       'Khurda': '20.1811° N, 85.6107° E',
@@ -190,13 +184,15 @@ export default function DigitalLibrary() {
   const mapStatus = (backendStatus) => {
     const statusMap = {
       'Pending': 'pending',
-      'OCR Processed': 'under review',
+      'OCR Processed': 'ocr processed',
       'Under Review': 'under review',
       'Approved': 'approved',
       'Rejected': 'rejected'
     };
-    return statusMap[backendStatus] || 'pending';
+    return statusMap[backendStatus] || backendStatus?.toLowerCase() || 'pending';
   };
+
+  const statusOptions = ["Pending", "OCR Processed", "Under Review", "Approved", "Rejected"];
 
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";
@@ -204,7 +200,6 @@ export default function DigitalLibrary() {
     return date.toLocaleDateString('en-GB');
   };
 
-  // ✅ Update claim status in backend
   const handleStatusChange = async (claimId, newStatus) => {
     const claim = claims.find(c => c.claimId === claimId);
     if (!claim) return;
@@ -212,15 +207,15 @@ export default function DigitalLibrary() {
     setUpdatingStatus(claimId);
     
     try {
-      // Map frontend status to backend status
       const backendStatusMap = {
         'pending': 'Pending',
+        'ocr processed': 'OCR Processed',
         'under review': 'Under Review', 
         'approved': 'Approved',
         'rejected': 'Rejected'
       };
       
-      const backendStatus = backendStatusMap[newStatus];
+      const backendStatus = backendStatusMap[newStatus] || newStatus;
       const notes = `Status updated to ${backendStatus} via Digital Library`;
       
       const response = await fetch(
@@ -239,8 +234,7 @@ export default function DigitalLibrary() {
 
       const result = await response.json();
       
-      if (result.success) {
-        // Update local state
+      if (result.success || result.status === "success") {
         const currentDate = new Date().toLocaleDateString('en-GB');
         setClaims(prevClaims => 
           prevClaims.map(c => 
@@ -256,7 +250,6 @@ export default function DigitalLibrary() {
           )
         );
         
-        // Update selected claim if open
         if (selectedClaim && selectedClaim.claimId === claimId) {
           setSelectedClaim(prev => ({
             ...prev,
@@ -278,7 +271,6 @@ export default function DigitalLibrary() {
     }
   };
 
-  // ✅ Search claims using backend
   const searchClaims = async (query) => {
     if (!query.trim()) {
       fetchClaims();
@@ -287,6 +279,9 @@ export default function DigitalLibrary() {
 
     try {
       setLoading(true);
+      setSearchLoading(true);
+      setError(null);
+      
       const response = await fetch(`${API_BASE_URL}/claims/search?q=${encodeURIComponent(query)}&full_details=false`);
       
       if (!response.ok) {
@@ -309,45 +304,53 @@ export default function DigitalLibrary() {
           description: claim.comments || `${claim.form_type} claim processed via Atlas OCR`,
           coordinates: getCoordinates(claim),
           contactNumber: "Contact via Forest Department",
-          documentCount: claim.document_filename ? 1 : 0,
           reviewedBy: claim.assigned_officer || "Pending Assignment",
           reviewDate: claim.submission_date ? formatDate(claim.submission_date) : "N/A",
           remarks: claim.verification_notes || "Processed through Aṭavī Atlas system",
           backendId: claim.id,
           extracted_fields: claim.extracted_fields,
           document_filename: claim.document_filename,
-          priority: claim.priority
+          priority: claim.priority,
+          documentCount: (claim.form_doc_url ? 1 : 0) + (claim.geojson_file_url ? 1 : 0) + (claim.supporting_doc_urls ? claim.supporting_doc_urls.length : 0),
+          documents: [
+            claim.form_doc_url && { type: 'Main Form', url: claim.form_doc_url, name: claim.document_filename || 'Main Form' },
+            ...(claim.supporting_doc_urls || []).map((url, index) => ({
+              type: 'Supporting',
+              url,
+              name: `Supporting Document ${index + 1}`
+            })),
+            claim.geojson_file_url && { type: 'GeoJSON', url: claim.geojson_file_url, name: 'GeoJSON Boundary File' }
+          ].filter(Boolean)
         }));
         
         setClaims(transformedClaims);
       }
     } catch (err) {
       console.error("Search error:", err);
-      setError(`Search failed: ${err.message}`);
+      setClaims([]);
     } finally {
       setLoading(false);
+      setSearchLoading(false);
     }
   };
 
-  // ✅ Load claims on component mount
   useEffect(() => {
     fetchClaims();
   }, []);
 
-  // ✅ Handle search with debouncing
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (search.length >= 2) {
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      if (search.trim().length >= 2) {
         searchClaims(search);
-      } else if (search.length === 0) {
+      } else if (search.trim().length === 0) {
+        fetchClaims();
+      } else {
+        // Optionally handle short queries, perhaps show alert or just fetch all
         fetchClaims();
       }
-    }, 500);
+    }
+  };
 
-    return () => clearTimeout(timer);
-  }, [search]);
-
-  // Get unique districts from claims
   const districts = ["all", ...Array.from(new Set(claims.map((c) => c.district)))];
 
   const filteredClaims = claims.filter((c) => {
@@ -380,23 +383,22 @@ export default function DigitalLibrary() {
         return "text-red-600 bg-red-100 hover:bg-red-200";
       case "under review":
         return "text-blue-600 bg-blue-100 hover:bg-blue-200";
+      case "ocr processed":
+        return "text-purple-600 bg-purple-100 hover:bg-purple-200";
       default:
         return "text-gray-600 bg-gray-100 hover:bg-gray-200";
     }
   };
 
-  // ✅ Updated WebGIS handler with navigation
   const handleWebGISClick = (claim) => {
-    console.log(`🗺️ Opening WebGIS for claim ${claim.claimId}`);
-    
-    // Navigate to ViewGIS page with claim ID
-    navigate(`/viewgis/${claim.backendId}`);
+    console.log(`Opening WebGIS for claim ${claim.claimId}`);
+    window.open(`/viewgis/${claim.backendId}`, '_blank');
   };
 
   const handleDSSClick = (claim) => {
-    if (claim.document_filename) {
-      console.log(`Opening documents for claim ${claim.claimId}: ${claim.document_filename}`);
-      alert(`📄 Original Documents\n\nClaim: ${claim.claimId}\nDocument: ${claim.document_filename}\n\nProcessed via Aṭavī Atlas OCR\n\nThis will open the document viewer.`);
+    if (claim.documents && claim.documents.length > 0) {
+      const docList = claim.documents.map(doc => `${doc.name}: ${doc.url}`).join('\n');
+      alert(`Documents for Claim ${claim.claimId}\n\n${docList}\n\nProcessed via Aṭavī Atlas OCR\n\nThis will open the document viewer.`);
     } else {
       alert(`No documents available for claim ${claim.claimId}`);
     }
@@ -439,6 +441,7 @@ export default function DigitalLibrary() {
                     mappedStatus === 'approved' ? 'bg-green-500' :
                     mappedStatus === 'pending' ? 'bg-yellow-500' :
                     mappedStatus === 'rejected' ? 'bg-red-500' :
+                    mappedStatus === 'ocr processed' ? 'bg-purple-500' :
                     'bg-blue-500'
                   }`}></span>
                   {status}
@@ -451,7 +454,6 @@ export default function DigitalLibrary() {
     );
   };
 
-  // ✅ Delete Button Component
   const DeleteButton = ({ claim }) => {
     const isDeleting = deletingClaim === claim.claimId;
     
@@ -477,7 +479,6 @@ export default function DigitalLibrary() {
     );
   };
 
-  // ✅ Loading state
   if (loading) {
     return (
       <div className="p-6">
@@ -493,7 +494,6 @@ export default function DigitalLibrary() {
     );
   }
 
-  // ✅ Error state
   if (error) {
     return (
       <div className="p-6">
@@ -518,82 +518,21 @@ export default function DigitalLibrary() {
 
   return (
     <div className="p-6">
-      {/* Blur overlay when popup is open */}
       {showPopup && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-black bg-opacity-20 z-40"></div>
+        <div className="fixed inset-0 backdrop-blur-lg bg-opacity-50 z-40"></div>
       )}
       
-      {/* ✅ Delete Confirmation Modal */}
-      {showDeleteConfirm && claimToDelete && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-          <div className="fixed inset-0 bg-black bg-opacity-50" onClick={cancelDelete}></div>
-          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full z-50">
-            <div className="p-6">
-              <div className="flex items-center space-x-3 mb-4">
-                <div className="flex-shrink-0">
-                  <AlertTriangle className="h-10 w-10 text-red-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Delete Claim</h3>
-                  <p className="text-sm text-gray-600">This action cannot be undone.</p>
-                </div>
-              </div>
-              
-              <div className="mb-6">
-                <p className="text-gray-800">
-                  Are you sure you want to delete claim <strong>{claimToDelete.claimId}</strong> for <strong>{claimToDelete.applicantName}</strong>?
-                </p>
-                <div className="mt-2 p-3 bg-red-50 rounded-lg">
-                  <p className="text-sm text-red-700">
-                    <strong>Warning:</strong> This will permanently remove the claim record and all associated data from the system.
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={cancelDelete}
-                  className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmDeleteClaim}
-                  disabled={deletingClaim}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                >
-                  {deletingClaim ? (
-                    <>
-                      <RefreshCw size={16} className="animate-spin" />
-                      <span>Deleting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 size={16} />
-                      <span>Delete Claim</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Centered container with max width */}
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="mb-8">
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                🌳 Aṭavī Atlas - Digital Library
+                Aṭavī Atlas - Digital Library
               </h1>
               <p className="text-gray-600">
                 Forest Rights Act claims powered by AI-driven OCR processing
               </p>
             </div>
-            {/* Connection status & Admin toggle */}
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
                 <div className="w-3 h-3 bg-green-500 rounded-full"></div>
@@ -621,7 +560,6 @@ export default function DigitalLibrary() {
           </div>
         </div>
 
-        {/* Filters */}
         <div className="bg-white rounded-lg shadow-sm border p-6 mb-8">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold text-gray-800">
@@ -636,13 +574,23 @@ export default function DigitalLibrary() {
             </button>
           </div>
           <div className="grid md:grid-cols-4 gap-4">
-            <input
-              type="text"
-              placeholder="Search by name or claim ID..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="border rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search by name or claim ID... (press Enter to search)"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                className="w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                disabled={searchLoading}
+              />
+              {searchLoading && (
+                <RefreshCw 
+                  className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gray-400" 
+                  size={16} 
+                />
+              )}
+            </div>
 
             <select
               value={statusFilter}
@@ -652,6 +600,7 @@ export default function DigitalLibrary() {
               <option value="all">All Statuses</option>
               <option value="approved">Approved</option>
               <option value="pending">Pending</option>
+              <option value="ocr processed">OCR Processed</option>
               <option value="under review">Under Review</option>
               <option value="rejected">Rejected</option>
             </select>
@@ -682,21 +631,20 @@ export default function DigitalLibrary() {
           </div>
         </div>
 
-        {/* Claims Table */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="bg-white rounded-lg shadow">
+          <div className="overflow-x-auto min-h-[300px]">
             <table className="min-w-full border-collapse">
               <thead className="bg-green-700 text-white">
                 <tr>
-                  <th className="py-3 px-4 text-left">Claim ID</th>
-                  <th className="py-3 px-4 text-left">Applicant Name</th>
-                  <th className="py-3 px-4 text-left">Village</th>
-                  <th className="py-3 px-4 text-left">District</th>
-                  <th className="py-3 px-4 text-left">Claim Type</th>
-                  <th className="py-3 px-4 text-left">Area (ha)</th>
-                  <th className="py-3 px-4 text-left">Submission Date</th>
-                  <th className="py-3 px-4 text-left">Status</th>
-                  {isAdmin && <th className="py-3 px-4 text-left">Actions</th>}
+                  <th className="py-4 px-4 text-left">Claim ID</th>
+                  <th className="py-4 px-4 text-left">Applicant Name</th>
+                  <th className="py-4 px-4 text-left">Village</th>
+                  <th className="py-4 px-4 text-left">District</th>
+                  <th className="py-4 px-4 text-left">Claim Type</th>
+                  <th className="py-4 px-4 text-left">Area (ha)</th>
+                  <th className="py-4 px-4 text-left">Submission Date</th>
+                  <th className="py-4 px-4 text-left">Status</th>
+                  {isAdmin && <th className="py-4 px-4 text-left">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -706,20 +654,20 @@ export default function DigitalLibrary() {
                     className="border-b last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
                     onClick={(e) => handleClaimClick(claim, e)}
                   >
-                    <td className="py-3 px-4 font-medium text-blue-600 hover:text-blue-800">
+                    <td className="py-4 px-4 font-medium text-blue-600 hover:text-blue-800">
                       {claim.claimId}
                     </td>
-                    <td className="py-3 px-4">{claim.applicantName}</td>
-                    <td className="py-3 px-4">{claim.village}</td>
-                    <td className="py-3 px-4">{claim.district}</td>
-                    <td className="py-3 px-4">{claim.claimType}</td>
-                    <td className="py-3 px-4">{claim.area}</td>
-                    <td className="py-3 px-4">{claim.submissionDate}</td>
-                    <td className="py-3 px-4">
+                    <td className="py-4 px-4">{claim.applicantName}</td>
+                    <td className="py-4 px-4">{claim.village}</td>
+                    <td className="py-4 px-4">{claim.district}</td>
+                    <td className="py-4 px-4">{claim.claimType}</td>
+                    <td className="py-4 px-4">{claim.area}</td>
+                    <td className="py-4 px-4">{claim.submissionDate}</td>
+                    <td className="py-4 px-4">
                       <StatusDropdown claim={claim} />
                     </td>
                     {isAdmin && (
-                      <td className="py-3 px-4">
+                      <td className="py-4 px-4">
                         <DeleteButton claim={claim} />
                       </td>
                     )}
@@ -729,24 +677,29 @@ export default function DigitalLibrary() {
             </table>
           </div>
           {filteredClaims.length === 0 && (
-            <p className="p-6 text-center text-gray-500">
-              No claims found matching your filters.
-            </p>
+            <div className="p-8 text-center">
+              <div className="flex flex-col items-center space-y-3">
+                <AlertCircle className="text-gray-400" size={48} />
+                <p className="text-gray-600 font-medium">
+                  {search ? `No claims found matching "${search}"` : 'No claims found matching your filters'}
+                </p>
+                <p className="text-gray-500 text-sm">
+                  Try adjusting your search terms or filters
+                </p>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Results count */}
         <div className="mt-4 text-sm text-gray-600 flex justify-between items-center">
           <span>Showing {filteredClaims.length} of {claims.length} claims</span>
-          <span className="text-green-600">🌳 Powered by Aṭavī Atlas</span>
+          <span className="text-green-600">Powered by Aṭavī Atlas</span>
         </div>
       </div>
 
-      {/* Claim Details Popup - Enhanced with navigation */}
       {showPopup && selectedClaim && (
         <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Header */}
+          <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh]">
             <div className="flex justify-between items-center p-6 border-b bg-green-50">
               <div>
                 <h2 className="text-2xl font-bold text-gray-800">
@@ -775,7 +728,6 @@ export default function DigitalLibrary() {
             </div>
 
             <div className="p-6">
-              {/* Status Badge */}
               <div className="mb-6">
                 <div className="flex items-center space-x-3">
                   <span className="text-sm font-medium text-gray-700">Current Status:</span>
@@ -783,9 +735,7 @@ export default function DigitalLibrary() {
                 </div>
               </div>
 
-              {/* Main Information Grid */}
               <div className="grid md:grid-cols-2 gap-6 mb-8">
-                {/* Left Column */}
                 <div className="space-y-4">
                   <div className="flex items-start space-x-3">
                     <User className="text-green-600 mt-1" size={20} />
@@ -836,7 +786,6 @@ export default function DigitalLibrary() {
                   </div>
                 </div>
 
-                {/* Right Column */}
                 <div className="space-y-4">
                   <div>
                     <p className="font-semibold text-gray-700">Submission Date</p>
@@ -844,8 +793,21 @@ export default function DigitalLibrary() {
                   </div>
 
                   <div>
-                    <p className="font-semibold text-gray-700">Document</p>
-                    <p className="text-gray-900">{selectedClaim.document_filename || "N/A"}</p>
+                    <p className="font-semibold text-gray-700">Documents</p>
+                    {selectedClaim.documents && selectedClaim.documents.length > 0 ? (
+                      <ul className="space-y-1">
+                        {selectedClaim.documents.map((doc, index) => (
+                          <li key={index} className="text-gray-900">
+                            <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center space-x-1">
+                              <ExternalLink size={14} />
+                              <span>{doc.name}</span>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-900">No documents available</p>
+                    )}
                   </div>
 
                   <div>
@@ -867,15 +829,13 @@ export default function DigitalLibrary() {
                 </div>
               </div>
 
-              {/* Description */}
-              <div className="mb-8">
+              {/* <div className="mb-8">
                 <h3 className="font-semibold text-gray-700 mb-2">Description</h3>
                 <p className="text-gray-900 bg-gray-50 p-4 rounded-lg">
                   {selectedClaim.description}
                 </p>
-              </div>
+              </div> */}
 
-              {/* Remarks */}
               <div className="mb-8">
                 <h3 className="font-semibold text-gray-700 mb-2">Review Remarks</h3>
                 <p className="text-gray-900 bg-gray-50 p-4 rounded-lg">
@@ -883,7 +843,6 @@ export default function DigitalLibrary() {
                 </p>
               </div>
 
-              {/* Action Buttons - Updated with navigation */}
               <div className="flex flex-col sm:flex-row gap-4">
                 <button
                   onClick={() => handleWebGISClick(selectedClaim)}
@@ -918,6 +877,62 @@ export default function DigitalLibrary() {
                   className="flex items-center justify-center space-x-2 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-300 transition-colors"
                 >
                   <span>Close</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm && claimToDelete && (
+        <div className="fixed inset-0 flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 backdrop-blur-sm bg-opacity-90 z-[55]" onClick={cancelDelete}></div>
+          <div className="relative bg-white rounded-lg shadow-2xl max-w-md w-full z-[60]">
+            <div className="p-6">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="h-10 w-10 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Delete Claim</h3>
+                  <p className="text-sm text-gray-600">This action cannot be undone.</p>
+                </div>
+              </div>
+              
+              <div className="mb-6">
+                <p className="text-gray-800">
+                  Are you sure you want to delete claim <strong>{claimToDelete.claimId}</strong> for <strong>{claimToDelete.applicantName}</strong>?
+                </p>
+                <div className="mt-2 p-3 bg-red-50 rounded-lg">
+                  <p className="text-sm text-red-700">
+                    <strong>Warning:</strong> This will permanently remove the claim record and all associated data from the system.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={cancelDelete}
+                  className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteClaim}
+                  disabled={deletingClaim}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {deletingClaim ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={16} />
+                      <span>Delete Claim</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
