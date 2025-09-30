@@ -1,3 +1,8 @@
 .env
 fra_atlas_env
 ai-pipeline/__pycache__
+fra_venv
+backend/fra_venv
+backend/fra_atlas_env
+fra_venv_native
+fra_venv_windows
