@@ -110,7 +110,7 @@ atavī-atlas/
 
 ```sh
 # Clone repository
-git clone https://github.com/yourorg/atavi-atlas.git
+git clone https://github.com/PratikPawar1401/fra
 
 # Backend setup
 cd backend
@@ -127,3 +127,4 @@ cd mobile
 flutter pub get
 flutter run
 ```
+
